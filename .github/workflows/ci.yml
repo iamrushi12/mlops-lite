@@ -7,28 +7,37 @@ on:
     branches: [ master ]
 
 jobs:
-  build-and-run-pipeline:
+  build:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Set up Docker
-      uses: docker/setup-buildx-action@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
 
-    - name: Build Docker image
-      run: |
-        docker build -t mlops-pipeline -f docker/Dockerfile .
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-    - name: Run pipeline inside Docker
-      run: |
-        docker run --rm \
-          -v ${{ github.workspace }}/ml_outputs:/app/ml_outputs \
-          mlops-pipeline
+      - name: Run data pipeline
+        run: python src/data/data_pipeline.py
 
-    - name: Upload pipeline outputs as artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: ml_outputs
-        path: ml_outputs
+      - name: Run model training
+        run: python src/model/train.py
+
+      - name: Run evaluation
+        run: python src/model/evaluate.py
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Upload model artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trained-model
+          path: ml_outputs/model/
