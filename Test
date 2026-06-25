@@ -1,0 +1,49 @@
+import os
+import asyncio
+from datetime import datetime, timezone
+
+from azure.eventhub import EventData, TransportType
+from azure.eventhub.aio import EventHubProducerClient
+
+
+EVENT_HUB_CONNECTION_STR = os.environ["EVENT_HUB_CONNECTION_STR"]
+EVENT_HUB_NAME = os.environ.get("EVENT_HUB_NAME")
+
+
+def get_producer_client():
+    # If connection string already contains EntityPath, Event Hub name is already inside it.
+    if "EntityPath=" in EVENT_HUB_CONNECTION_STR:
+        return EventHubProducerClient.from_connection_string(
+            conn_str=EVENT_HUB_CONNECTION_STR,
+            transport_type=TransportType.AmqpOverWebsocket
+        )
+
+    # If EntityPath is not present, pass Event Hub name separately.
+    return EventHubProducerClient.from_connection_string(
+        conn_str=EVENT_HUB_CONNECTION_STR,
+        eventhub_name=EVENT_HUB_NAME,
+        transport_type=TransportType.AmqpOverWebsocket
+    )
+
+
+async def run():
+    producer = get_producer_client()
+
+    async with producer:
+        event_data_batch = await producer.create_batch()
+
+        test_message = {
+            "source": "manual-cross-tenant-test",
+            "message": "Event Hub connectivity test",
+            "timestampUtc": datetime.now(timezone.utc).isoformat()
+        }
+
+        event_data_batch.add(EventData(str(test_message)))
+
+        await producer.send_batch(event_data_batch)
+
+    print("Event sent successfully to Event Hub.")
+
+
+if __name__ == "__main__":
+    asyncio.run(run())
