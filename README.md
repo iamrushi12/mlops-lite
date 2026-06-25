@@ -145,3 +145,17 @@ cd ~
 rm -rf eh-connectivity-test
 
 .
+
+
+python - <<'PY'
+import os
+
+cs = os.environ.get("EVENT_HUB_CONNECTION_STR", "")
+eh = os.environ.get("EVENT_HUB_NAME", "")
+
+print("Connection string loaded:", bool(cs))
+print("Contains EntityPath:", "EntityPath=" in cs)
+print("Event Hub name loaded:", bool(eh))
+print("Event Hub name:", eh)
+PY
+
