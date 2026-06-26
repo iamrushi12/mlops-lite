@@ -124,3 +124,13 @@ except Exception as e:
     print("FAILED")
     print(type(e).__name__)
     print(str(e))
+
+
+
+
+Remove-Item Env:EVENTHUB_CONNECTION_STRING -ErrorAction SilentlyContinue
+
+$secure = Read-Host "Paste full Event Hub connection string" -AsSecureString
+$bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+$env:EVENTHUB_CONNECTION_STRING = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
