@@ -47,3 +47,12 @@ async def run():
 
 if __name__ == "__main__":
     asyncio.run(run())
+
+
+
+
+
+
+
+$secure = Read-Host "Paste Event Hub connection string" -AsSecureString
+$env:EVENTHUB_CONNECTION_STRING = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure))
