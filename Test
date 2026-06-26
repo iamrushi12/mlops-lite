@@ -56,3 +56,41 @@ if __name__ == "__main__":
 
 $secure = Read-Host "Paste Event Hub connection string" -AsSecureString
 $env:EVENTHUB_CONNECTION_STRING = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure))
+
+$env:EVENTHUB_NAME = Read-Host "Enter Event Hub name"
+
+
+
+
+
+@'
+import os
+from azure.eventhub import EventHubProducerClient, EventData
+
+conn_str = os.environ["EVENTHUB_CONNECTION_STRING"]
+eventhub_name = os.environ.get("EVENTHUB_NAME")
+
+try:
+    if "EntityPath=" in conn_str:
+        producer = EventHubProducerClient.from_connection_string(conn_str=conn_str)
+    else:
+        producer = EventHubProducerClient.from_connection_string(
+            conn_str=conn_str,
+            eventhub_name=eventhub_name
+        )
+
+    with producer:
+        batch = producer.create_batch()
+        batch.add(EventData("PPP UK Cloud Shell test event to SI/EXA UK Event Hub"))
+        producer.send_batch(batch)
+
+    print("SUCCESS: Event sent to Event Hub")
+
+except Exception as e:
+    print("FAILED")
+    print(type(e).__name__)
+    print(str(e))
+'@ | Out-File -FilePath send_eventhub_test.py -Encoding utf8
+
+
+
