@@ -1,0 +1,14 @@
+Patch the deployment so the DU BFF App Service receives these environment variables from Azure DevOps variable group/app settings:
+
+BFF_OIDC_ISSUER
+BFF_OIDC_CLIENT_ID
+BFF_OIDC_CLIENT_SECRET
+BFF_OIDC_REDIRECT_URI
+BFF_OIDC_SCOPES
+BFF_OIDC_AUDIENCE
+BFF_OIDC_POST_LOGIN_REDIRECT
+SESSION_MAX_AGE
+
+Add the required Bicep params and add them into the duApiAppSettings properties block in infra/templates/web-app.bicep. Also update the pipeline parameter mapping if deploy.steps.yml passes variable group values into the Bicep deployment. Do not hardcode environment-specific values or secrets.
+
+
