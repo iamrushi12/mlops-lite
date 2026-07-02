@@ -38,3 +38,27 @@ Please do end-to-end repo changes:
 5. Map the parameters from existing Azure DevOps variable group variables.
 6. Show me all changed files and explain exactly what variable names I need to add in the Azure DevOps variable group.
 7. Do not modify frontend login code unless it is actually required.
+
+
+
+
+Update the repo changes for OneAccount OIDC PKCE integration.
+
+We are using Authorization Code with PKCE, so client secret is NOT required.
+
+Please update only:
+1. infra/templates/web-app.bicep
+2. pipelines/deploy.steps.yml
+
+Add/wire these BFF runtime app settings:
+BFF_OIDC_ISSUER
+BFF_OIDC_CLIENT_ID
+BFF_OIDC_REDIRECT_URI
+BFF_OIDC_SCOPES
+BFF_OIDC_AUDIENCE
+BFF_OIDC_POST_LOGIN_REDIRECT
+SESSION_MAX_AGE
+
+Remove any newly added BFF_OIDC_CLIENT_SECRET parameter, pipeline mapping, or App Service app setting because PKCE does not need client secret.
+
+Do not touch existing BFF_CLIENT_ID, BFF_CLIENT_SECRET, API_OIDC_BOOTSTRAP_* values, or frontend login code.
