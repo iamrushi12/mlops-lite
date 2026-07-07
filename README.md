@@ -159,3 +159,16 @@ print("Event Hub name loaded:", bool(eh))
 print("Event Hub name:", eh)
 PY
 
+
+
+Hi Josh, understood your point that deploying to the shared DU API can overwrite the currently deployed code, especially while you are doing E2E testing.
+
+My change is very small, only around 10–12 lines in the deployment steps YAML, but creating a separate DU API web app will change the URL and will require CORS whitelisting and One Account redirect URI registration again, which may delay the testing.
+
+Could you please let me know once your E2E testing is completed, or suggest a safe time window when I can deploy and test my changes on the shared resource without impacting your work? I’ll coordinate before triggering anything.
+
+
+
+Moreover, I was checking this pipeline run: , and I can see the deployment seems to be going to your own/isolated resources.
+
+Just wanted to confirm if your current testing is fully isolated from the shared DU API resource. If yes, please let me know whether I can deploy and test my small YAML change on the shared resource. If there is still any chance of impact, I’ll wait for your confirmation or a safe testing window.
