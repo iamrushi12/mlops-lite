@@ -62,3 +62,48 @@ SESSION_MAX_AGE
 Remove any newly added BFF_OIDC_CLIENT_SECRET parameter, pipeline mapping, or App Service app setting because PKCE does not need client secret.
 
 Do not touch existing BFF_CLIENT_ID, BFF_CLIENT_SECRET, API_OIDC_BOOTSTRAP_* values, or frontend login code.
+
+
+
+
+We found the root cause of the One Account login issue.
+
+Current problem:
+The frontend is Vite-based and the login URL is using `VITE_OIDC_CLIENT_ID` from:
+src/du_api_webapp/aiae-du-frontend/aiae-du-portal/.env.example
+
+Currently it has:
+VITE_OIDC_CLIENT_ID=du-client
+
+Because Vite values are baked into the frontend bundle at build time, the browser is sending `client_id=du-client` to One Account, causing:
+400 - Invalid client_id
+
+Required fix:
+Do NOT change `API_OIDC_BOOTSTRAP_CLIENT_ID` or `BFF_CLIENT_ID`. Those are internal/bootstrap or BFF/API client values.
+
+Only fix the frontend OIDC config path.
+
+Please make the deployment variable-group-driven, not hardcoded.
+
+Changes needed:
+1. Update `.env.example` so frontend OIDC values are placeholders, not static values:
+   - VITE_OIDC_AUTHORITY=<VITE_OIDC_AUTHORITY>
+   - VITE_OIDC_CLIENT_ID=<VITE_OIDC_CLIENT_ID>
+   - VITE_HOST_URL=<VITE_HOST_URL>
+   - keep VITE_API_BASE_URL=<API_BASE_URL> as existing pattern
+
+2. Update `pipelines/deploy.steps.yml` or the actual frontend build step to replace these placeholders before the frontend build:
+   - <VITE_OIDC_AUTHORITY> should come from the environment/variable group value for One Account issuer, likely `bffOidcIssuer` or `BFF_OIDC_ISSUER`
+   - <VITE_OIDC_CLIENT_ID> should come from the One Account registered client ID, likely `bffOidcClientId` or `BFF_OIDC_CLIENT_ID`
+   - <VITE_HOST_URL> should come from the frontend/app base URL if required by the frontend callback logic
+
+3. Ensure replacement happens before `npm build` / frontend build command, because Vite reads `VITE_*` variables at build time.
+
+4. Do not hardcode Soumya’s client ID directly in `.env.example`, except if needed temporarily for local testing. Final solution must use Azure DevOps variable group / pipeline variables.
+
+5. After the fix, the browser authorization URL should show:
+   client_id=<One Account client id shared by Soumya>
+   not:
+   client_id=du-client
+
+Please inspect the existing deploy script pattern where `API_BASE_URL` is replaced and extend the same pattern for `VITE_OIDC_CLIENT_ID`, `VITE_OIDC_AUTHORITY`, and `VITE_HOST_URL`. Keep environment-specific values coming from variable groups.
