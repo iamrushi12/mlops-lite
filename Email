@@ -1,0 +1,32 @@
+Subject: One Account OIDC Login – Invalid Client ID Validation Required
+
+Hi Soumya,
+
+We have fixed the frontend configuration issue from our side. Earlier, the browser authorization URL was passing the wrong client ID as du-client, but after updating the frontend build-time configuration, it is now passing the expected client ID:
+
+client_id=BjY4D7Lv
+
+However, One Account is still returning the below error:
+
+400 - Invalid client_id
+
+The authorization request is going to:
+
+https://onelogin.dev.axa.com/as/authorization.oauth2
+
+The redirect URI currently being passed in the browser URL is:
+
+https://documentunderstanding-web-dv.z-auk-dv-en-ase02.appserviceenvironment.net/redirect
+
+Could you please validate from the One Account side whether:
+
+1. BjY4D7Lv is registered and active in the DEV One Account environment.
+2. This client ID is configured under the correct authorization endpoint/issuer: https://onelogin.dev.axa.com.
+3. The exact redirect URI with /redirect is registered for this client ID.
+4. The client is enabled for Authorization Code + PKCE flow.
+5. The allowed scopes for this client are confirmed. Currently, our variable group has openid profile email offline_access, but the browser URL is showing a slightly different scope value.
+
+I have attached the screenshot and authorization URL for your reference.
+
+Thanks & Regards,
+Rushi
