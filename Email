@@ -30,3 +30,19 @@ I have attached the screenshot and authorization URL for your reference.
 
 Thanks & Regards,
 Rushi
+Hi Siddharth,
+
+We are currently working on a Power BI dashboard that will consume read-only TU data for visualization purposes. Before proceeding further, we would like to understand the platform and security considerations from the PE side to ensure that we align with the standard process.
+
+Could you please help us clarify the following points?
+
+* Are there any security reviews, approvals, or PE checkpoints that need to be completed before a Power BI dashboard can be published to production?
+* Are there any restrictions or guidelines regarding the data sources that Power BI dashboards can consume?
+* What is the standard process for publishing and sharing the dashboard with business stakeholders?
+* Is there a designated workspace or environment where such dashboards are expected to be hosted?
+* Are there any governance, compliance, or audit requirements that we should consider while designing the dashboard?
+* Are there any platform-specific recommendations or best practices that the team should follow before taking the dashboard live?
+* Is there anything else from the PE side that we should take care of upfront to avoid issues during the production rollout?
+
+We wanted to understand these requirements in advance so that we can design and deploy the solution in line with the existing platform standards.
+
