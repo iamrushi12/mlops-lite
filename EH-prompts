@@ -1,0 +1,334 @@
+Act as a senior Azure Python developer. Inspect this repository and implement the Event Hub publishing changes required for the current ticket.
+
+## Ticket objective
+
+The existing Document Understanding application must publish data to Azure Event Hub from two points in the current processing flow:
+
+1. After the pre-decision/confidence-processing data is available.
+2. After the post-HITL process is completed and the final corrected data is available.
+
+The downstream Data Engineering team will handle Event Hub ingestion, Data Lake storage, and identifying/processing the events.
+
+Our responsibility is only to publish the correct existing application data to Event Hub from the correct code locations.
+
+## Important scope clarification
+
+Do not invent or enforce a new custom event-envelope structure.
+
+Do not add fields such as:
+
+- event_type
+- event_version
+- source
+- environment
+- correlation_id
+- custom timestamps
+
+unless those fields already exist in the current payload, are already required by an existing schema, or are clearly required by the existing implementation.
+
+Reuse the payloads and field names already available in the application.
+
+Do not rename existing business fields.
+
+Do not reintroduce the old `pipeline_id` field if the repository already uses `pipeline_definition_id`.
+
+The published Event Hub messages must contain the existing data available at each publishing point, including pipeline IDs and other identifiers already present in the application.
+
+## First inspect the repository
+
+Before changing anything, inspect and identify:
+
+1. The service or function responsible for confidence/pre-decision processing.
+2. The exact code location where the pre-decision payload is fully available.
+3. The service or API responsible for HITL completion.
+4. The exact code location where the final post-HITL payload is fully available.
+5. Existing request/response models, Pydantic models, dictionaries, schemas, Cosmos records, or serialization helpers that already represent these payloads.
+6. The existing Azure DevOps variable-group and deployment configuration pattern.
+7. Whether the services use synchronous or asynchronous Python.
+8. Whether `azure-eventhub` is already included in the deployed service dependencies.
+
+Do not make assumptions based only on filenames. Trace the actual application flow.
+
+## Event Hub configuration
+
+The Event Hub connection string is stored securely in an Azure DevOps Library variable group.
+
+Use this application-setting/environment-variable name unless the repository already has an agreed equivalent:
+
+`EVENT_HUB_CONNECTION_STRING`
+
+Do not hardcode any real connection string, key, namespace, or secret in source control.
+
+Also support an optional Event Hub name setting:
+
+`EVENT_HUB_NAME`
+
+Use `EVENT_HUB_NAME` only when the connection string does not already contain `EntityPath`.
+
+The implementation must support both cases:
+
+1. Event Hub connection string contains `EntityPath`.
+2. Namespace-level connection string is provided and the Event Hub entity name comes from `EVENT_HUB_NAME`.
+
+Never log the connection string.
+
+## Azure DevOps and infrastructure mapping
+
+Inspect the repository’s current variable-group and application-setting mapping.
+
+Add the Event Hub settings only where required, using the repository’s existing conventions.
+
+Likely locations may include:
+
+- Azure DevOps deployment YAML
+- service deployment templates
+- Bicep application settings
+- variable files
+- configuration/settings classes
+
+Map the Azure DevOps Library variable-group secret into the relevant Function App or Web App settings.
+
+Use the actual repository syntax rather than blindly applying this example:
+
+`EVENT_HUB_CONNECTION_STRING: $(EVENT_HUB_CONNECTION_STRING)`
+
+If `EVENT_HUB_NAME` is needed, map it as a non-secret configuration value.
+
+Only add these settings to the application services that actually publish the events.
+
+Assume the Event Hub resource already exists. Do not create a new Event Hub namespace or Event Hub unless the current infrastructure explicitly requires it.
+
+## Event Hub publisher implementation
+
+Create one reusable Event Hub publisher helper/service instead of duplicating connection and send logic in multiple business files.
+
+The publisher must:
+
+1. Read configuration through the repository’s existing settings mechanism.
+2. Create an `EventHubProducerClient`.
+3. Accept an existing Python dictionary, model, or payload object.
+4. Convert the existing payload into valid JSON.
+5. Use UTF-8 encoding.
+6. Create an Event Data batch.
+7. Add the serialized payload to the batch.
+8. Send the batch to Event Hub.
+9. Close the producer safely.
+10. Log success using safe identifiers only.
+11. Log failures without exposing secrets or complete sensitive payload contents.
+12. Follow the repository’s existing synchronous or asynchronous style.
+
+Do not redesign the application architecture unnecessarily.
+
+If the project uses dependency injection or application lifecycle services, integrate the producer consistently.
+
+If the current implementation is synchronous, do not introduce async Event Hub code without a strong repository-specific reason.
+
+## Payload rules
+
+Publish the existing application payload available at each stage.
+
+Do not create a large wrapper object around it.
+
+Do not replace the real payload with a reduced payload containing only IDs unless that is already the agreed payload in the code or ticket.
+
+Do not send raw non-serializable internal objects directly.
+
+Use existing serializers or models wherever possible.
+
+Ensure the payload is JSON serializable:
+
+- Convert datetime values to ISO-8601 strings.
+- Convert UUIDs or custom IDs to strings.
+- Convert enum values correctly.
+- Handle optional values safely.
+- Avoid double JSON encoding.
+- Do not convert an already structured object into an escaped JSON string inside another JSON object.
+
+If the existing application already exposes methods such as:
+
+- `model_dump()`
+- `dict()`
+- `json()`
+- existing payload builders
+- existing response serializers
+
+reuse them appropriately.
+
+## Pre-decision publishing
+
+Find the exact point where the confidence/pre-decision data is complete and before the application continues to the confidence-decision or HITL-routing stage.
+
+At this point, publish the existing pre-decision payload to Event Hub.
+
+The payload should include whatever is already available in the application, such as:
+
+- submission ID
+- pipeline definition ID
+- pipeline execution ID
+- document ID
+- extraction data
+- confidence data
+- status
+- document metadata
+- other existing identifiers or processing data
+
+Do not invent missing values.
+
+Do not modify or remove the existing decision-engine or routing call.
+
+The Event Hub publishing code should be inserted into the existing flow with minimal disruption.
+
+## Post-HITL publishing
+
+Find the exact point where HITL has been completed and the final corrected or approved payload is available.
+
+At this point, publish the existing post-HITL/final payload to Event Hub.
+
+Use the real final payload available in the application.
+
+This may include:
+
+- submission ID
+- pipeline definition ID
+- pipeline execution ID
+- document ID
+- corrected extraction data
+- final status
+- approval or correction result
+- other existing final metadata
+
+Do not invent missing fields.
+
+Do not change the existing HITL, export, or final-processing behaviour.
+
+## Distinguishing pre-decision and post-HITL data
+
+Do not automatically add a new `event_type` field.
+
+First inspect whether the two messages are already distinguishable through:
+
+- different Event Hubs
+- different producer services
+- different payload structures
+- existing status fields
+- existing pipeline definition IDs
+- existing process-stage fields
+- separate downstream routes
+
+Only add a small stage indicator such as `event_type` or `processing_stage` if:
+
+1. there is currently no way to distinguish the two messages, and
+2. adding it does not break the existing payload contract.
+
+If such a field is needed, keep the values minimal and clear:
+
+- `pre_decision`
+- `post_hitl`
+
+Before adding it, explicitly mention this as an assumption in the final summary.
+
+## Error handling
+
+The Event Hub integration must not corrupt the current document-processing workflow.
+
+Follow the repository’s existing exception-handling pattern.
+
+At minimum:
+
+- Log which publishing stage failed.
+- Log safe IDs where available.
+- Preserve useful exception details.
+- Never log the connection string.
+- Do not log the complete payload if it may contain document-sensitive data.
+- Do not report success when publishing failed.
+- Close the producer safely.
+
+Inspect the current ticket flow and repository behaviour to decide whether Event Hub failure should:
+
+- stop the current operation, or
+- be logged while the main business flow continues.
+
+Do not choose this arbitrarily.
+
+Use the existing ticket requirements, current error-handling pattern, and surrounding code behaviour.
+
+If this cannot be confirmed from the repository, keep the behaviour minimally invasive and clearly state the assumption in the final summary.
+
+Do not add infinite retries.
+
+If retry handling is needed and the repository has no existing retry mechanism, use only a small bounded retry for transient Event Hub/network failures.
+
+## Dependency changes
+
+Check whether the correct deployed Python service already contains the Azure Event Hubs SDK.
+
+If not, add:
+
+`azure-eventhub`
+
+to the correct dependency file used during deployment.
+
+Do not upgrade unrelated packages.
+
+## Tests
+
+Add or update unit tests using mocks only.
+
+Do not connect to a real Azure Event Hub.
+
+Test at least:
+
+1. Event Hub publisher serializes and sends a valid existing payload.
+2. Pre-decision publishing is called from the correct workflow point.
+3. Post-HITL publishing is called from the correct workflow point.
+4. Existing payload field names are preserved.
+5. Datetime, UUID, enum, and optional values serialize correctly.
+6. A connection string containing `EntityPath` works without `EVENT_HUB_NAME`.
+7. A namespace-level connection string uses `EVENT_HUB_NAME`.
+8. Missing configuration produces a clear controlled error.
+9. Publishing failures follow the selected error-handling behaviour.
+10. Secrets and full sensitive payloads are not logged.
+
+Use the repository’s existing testing framework and conventions.
+
+Mock the Azure Event Hub producer and send operation.
+
+## Restrictions
+
+Do not:
+
+- create a separate test Function App
+- create a standalone proof-of-concept application
+- create a Cloud Shell test script
+- create a dry-run implementation
+- create a new Event Hub resource
+- create a Data Lake integration
+- implement Power BI logic
+- replace Cosmos DB
+- modify unrelated business logic
+- hardcode connection strings
+- invent a new payload schema
+- duplicate the publisher code
+- send placeholder or fake business values
+
+Implement the change directly in the existing application code.
+
+## Required final response
+
+After making the changes, provide:
+
+1. The exact files changed.
+2. A concise explanation of each change.
+3. The exact function and code location used for pre-decision publishing.
+4. The exact function and code location used for post-HITL publishing.
+5. The existing payload/model used for each event.
+6. Whether any new stage-identification field was added and why.
+7. The Azure DevOps Library variables required:
+   - `EVENT_HUB_CONNECTION_STRING`
+   - `EVENT_HUB_NAME`, only if required
+8. The exact deployment mapping changes.
+9. The test files added or updated.
+10. The command to run the relevant tests.
+11. Any assumptions or unresolved points discovered from the repository.
+
+Do not only explain what should be done. Inspect the repository and implement the actual code changes.
