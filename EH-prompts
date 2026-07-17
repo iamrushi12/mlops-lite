@@ -332,3 +332,22 @@ After making the changes, provide:
 11. Any assumptions or unresolved points discovered from the repository.
 
 Do not only explain what should be done. Inspect the repository and implement the actual code changes.
+
+
+
+
+
+
+Review the current Event Hub implementation without making changes first.
+
+Verify specifically:
+
+1. Whether PipelineOutputService.update_content is called only after final HITL submission or can also be called for intermediate saves.
+2. Whether every post-HITL event always contains submission ID, document ID, and the correct pipeline_definition_id/pipeline execution identifier.
+3. Whether the pre-decision and post-HITL payloads could exceed Event Hub message limits or contain sensitive document information.
+4. Whether EVENT_HUB_NAME is actually required based on the connection-string format used by this repository.
+5. Whether all modified dependency files are genuinely used by the Function App and DU API deployment builds.
+6. Whether the synchronous Event Hub publisher is being called directly from an async DU API method and could block the event loop.
+7. Whether Event Hub send failures are intentionally logged and ignored, or whether the ticket expects the business operation to fail.
+
+Do not modify files yet. Return exact file names, functions, line numbers, findings, and recommended corrections.
