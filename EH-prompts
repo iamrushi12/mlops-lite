@@ -351,3 +351,129 @@ Verify specifically:
 7. Whether Event Hub send failures are intentionally logged and ignored, or whether the ticket expects the business operation to fail.
 
 Do not modify files yet. Return exact file names, functions, line numbers, findings, and recommended corrections.
+
+
+
+
+
+Review the existing Azure Functions Python project and add one isolated, temporary HTTP-triggered function for testing outbound connectivity from this Function App to Azure Event Hub.
+
+Important constraints:
+
+1. Do not modify, refactor, rename, or remove any existing functions, triggers, services, routes, business logic, configuration, or tests.
+2. Do not change the existing application flow.
+3. Add only the minimum files and code required for the temporary connectivity test.
+4. First inspect the repository and identify whether it uses:
+   - Azure Functions Python v1 programming model with function.json, or
+   - Azure Functions Python v2 programming model with decorators and FunctionApp/Blueprint.
+5. Follow the existing project structure and coding conventions.
+6. Do not create a separate Function App. Add one additional HTTP trigger inside the existing Function App.
+
+Temporary function requirements:
+
+- Function/route name: eventhub_connectivity_test
+- HTTP methods: POST only
+- Authorization level: FUNCTION, not ANONYMOUS
+- Purpose: accept a JSON payload from an HTTP request and publish that payload as one event to Azure Event Hub.
+- Return HTTP 200 only after Event Hub confirms the send operation completed.
+- Return HTTP 400 for missing, empty, or invalid JSON.
+- Return HTTP 500 for Event Hub connection, authentication, timeout, or publishing failures.
+- Log useful status information, but never log credentials, connection strings, SAS keys, authorization headers, or sensitive payload fields.
+
+Configuration:
+
+- Read the Event Hub connection string only from the Function App environment variable:
+
+  EVENT_HUB_CONNECTION_STRING
+
+- Do not hardcode the connection string anywhere.
+- I will map EVENT_HUB_CONNECTION_STRING from the Azure DevOps variable group into the Function App app settings.
+- Support both types of connection strings:
+
+  1. Event Hub-specific connection string containing:
+     EntityPath=<event-hub-name>
+
+     In this case, create the producer without passing eventhub_name separately.
+
+  2. Namespace-level connection string without EntityPath.
+
+     In this case, read the actual Event Hub entity name from:
+
+     EVENT_HUB_NAME
+
+     and pass it through eventhub_name.
+
+- Never use the Event Hubs namespace name as eventhub_name.
+- Validate the required configuration when the request is received and return a clear configuration error without exposing secret values.
+
+Event Hub implementation:
+
+- Use:
+  azure-eventhub
+
+- Import:
+  EventHubProducerClient
+  EventData
+  TransportType
+
+- Configure the producer with:
+
+  transport_type=TransportType.AmqpOverWebsocket
+
+- Use a context manager or finally block so the producer is always closed.
+- Serialize the received request JSON using json.dumps().
+- Send exactly one EventData message for each HTTP request.
+- Preserve the complete incoming JSON object without introducing a custom business wrapper.
+- Do not add an Event Hub trigger or output binding. Use EventHubProducerClient directly because this function is only for controlled connectivity testing.
+- Add a reasonable connection timeout/retry configuration only if it is supported by the installed Azure Event Hub SDK. Do not invent unsupported parameters.
+
+Response format:
+
+Successful response:
+
+{
+  "status": "success",
+  "message": "Event published successfully",
+  "target": "configured Event Hub entity"
+}
+
+Invalid request response:
+
+{
+  "status": "failed",
+  "message": "Request body must contain valid JSON"
+}
+
+Publishing failure response:
+
+{
+  "status": "failed",
+  "message": "Failed to publish event",
+  "errorType": "<safe exception class name>"
+}
+
+Do not expose the full exception if it could contain credentials or the complete connection string.
+
+Repository updates:
+
+1. Add azure-eventhub to the existing requirements.txt only if it is not already present.
+2. Do not upgrade or change unrelated dependencies.
+3. Do not edit host.json unless the new trigger genuinely requires it.
+4. Do not modify infrastructure or pipeline files unless EVENT_HUB_CONNECTION_STRING and EVENT_HUB_NAME must be mapped into the Function App app settings.
+5. If app-setting mappings are required, show the exact proposed changes first and keep them limited to:
+   - EVENT_HUB_CONNECTION_STRING
+   - EVENT_HUB_NAME
+6. Do not place secret values in variables.yml, environment-specific YAML files, source code, local.settings.json committed to Git, or logs.
+7. Add a clear comment marking the trigger as TEMPORARY and safe to remove after connectivity validation.
+
+Before editing:
+- Briefly tell me which Azure Functions programming model the repository uses.
+- Tell me which files you intend to modify or create.
+
+Then make the changes and provide:
+- The complete code for the temporary HTTP trigger.
+- A concise list of modified files.
+- The expected HTTP endpoint.
+- One curl example using a sample JSON payload.
+- The environment-variable names that must exist after deployment.
+- Instructions for removing the temporary trigger after testing.
