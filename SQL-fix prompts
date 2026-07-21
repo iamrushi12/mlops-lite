@@ -114,3 +114,121 @@ Tasks:
 
 Start with investigation and findings. Do not edit files until the root cause
 and proposed minimal diff are shown.
+
+
+
+
+
+I do not want to introduce a new Bicep file or module.
+
+Please undo and remove:
+
+infra/templates/cosmos-sql-role-assignment.bicep
+
+Do not delete or change any Azure resources. Only revise the local code.
+
+The deployment failure is:
+
+"Updating SQL Role Assignment Principal ID is not permitted."
+
+Implement the smallest permanent fix using only the existing Bicep templates.
+
+Tasks:
+
+1. Locate every existing resource of type:
+
+   Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments
+
+   especially in:
+   - infra/templates/app.bicep
+   - infra/templates/web-app.bicep
+   - infra/templates/cosmos-nosql.bicep
+   - any other existing template
+
+2. Confirm the exact failing resources and report their:
+   - file
+   - line
+   - symbolic name
+   - current role-assignment name expression
+   - current principalId source
+   - role definition
+   - scope
+
+3. The root cause is expected to be that the role-assignment name is based
+   only on application/resource names while principalId comes from a managed
+   identity. When the managed identity principal changes, Azure tries to
+   update an existing Cosmos SQL role assignment, but principalId is
+   immutable.
+
+4. Do not create any new file or folder.
+
+5. Replace the newly created module calls with direct
+   Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments resources inside
+   the existing app.bicep and web-app.bicep files.
+
+6. Because the assignment name must include principalId, determine whether
+   the principal ID can be passed into each existing template as a deployment
+   parameter known at the start of deployment.
+
+7. Prefer this pattern:
+
+   param cosmosIdentityPrincipalId string
+
+   name: guid(
+     databaseAccount.id,
+     cosmosIdentityPrincipalId,
+     roleDefinitionGuid
+   )
+
+   properties: {
+     roleDefinitionId:
+       '${databaseAccount.id}/sqlRoleDefinitions/${roleDefinitionGuid}'
+     principalId: cosmosIdentityPrincipalId
+     scope: databaseAccount.id
+   }
+
+8. Trace where the managed identity is created or referenced and update the
+   existing parent template or pipeline parameter mappings to pass the
+   correct principal/object ID.
+
+9. Do not use:
+   - client ID instead of principal ID
+   - managed identity resource ID instead of principal ID
+   - identity name as a substitute for principal ID
+   - newGuid()
+   - hard-coded environment-specific principal IDs in shared Bicep
+   - automatic role-assignment deletion
+
+10. If the principalId cannot be passed as a start-of-deployment parameter,
+    stop and explain clearly why the no-new-file implementation is not
+    technically possible with the current deployment structure. Do not
+    recreate the separate module unless I approve it.
+
+11. Check every environment parameter path:
+    - DV
+    - QA
+    - UAT/UT
+    - PP
+    - PR
+
+    Confirm that each environment will receive the correct principal ID.
+
+12. Preserve the existing Cosmos NoSQL account, databases, containers,
+    identities, application settings, Event Hub integration, and HTTP trigger.
+
+13. Show the exact final diff before applying it.
+
+14. Validate using:
+    - az bicep build
+    - az bicep lint
+    - deployment what-if
+
+15. The what-if must show:
+    - no Cosmos DB replacement
+    - no Function App replacement
+    - no Web App replacement
+    - no managed identity replacement
+    - no databases or containers deleted
+    - only intended Cosmos SQL role assignments created
+
+Do not make unrelated changes.
