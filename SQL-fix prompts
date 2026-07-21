@@ -1,0 +1,116 @@
+Act as a senior Azure Bicep and Azure Functions deployment engineer.
+
+I am receiving this deployment error:
+
+"Updating SQL Role Assignment Principal ID is not permitted. You may only
+update the associated Role Definition."
+
+The deployment error shows that the existing principal ID and the principal
+ID being deployed are different.
+
+I need you to investigate the complete repository and identify the exact root
+cause. Do not make broad, destructive, or unrelated changes.
+
+Tasks:
+
+1. Search the entire repository for:
+   - Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments
+   - Microsoft.Authorization/roleAssignments
+   - sqlRoleAssignments
+   - principalId
+   - roleDefinitionId
+   - guid(
+   - system-assigned and user-assigned managed identities
+   - Cosmos DB role assignment modules
+   - nested Bicep modules and deployment scripts
+   - Function App-only deployment pipelines
+
+2. Trace the complete deployment path:
+   - pipeline YAML entry point
+   - Bicep entry point
+   - modules called by that entry point
+   - the exact role-assignment resource causing the failure
+   - which application's managed identity is passed as principalId
+   - whether it belongs to the Function App, Web App, API, Orchestrator,
+     deployment service principal, or another resource
+
+3. Determine why the existing role-assignment resource name is being reused
+   for a different principalId. Check whether the current resource name or
+   GUID is generated without including principalId, for example:
+      guid(cosmosAccount.id, roleDefinitionId)
+   or whether it uses a fixed GUID.
+
+4. Check whether the managed identity was recreated and therefore received a
+   new principalId.
+
+5. Propose the smallest idempotent Bicep correction. For every Cosmos DB SQL
+   role assignment, the assignment name should be unique for the combination
+   of:
+   - Cosmos account or assignment scope
+   - principalId
+   - roleDefinitionId
+
+   Prefer a deterministic expression similar to:
+      guid(cosmosAccount.id, principalId, roleDefinitionId)
+
+   Adapt it correctly to the repository structure and existing naming
+   conventions.
+
+6. Check separately for Microsoft.Authorization/roleAssignments. Their
+   deterministic names should also include the assignment scope, principalId,
+   and roleDefinitionId where appropriate.
+
+7. Do not:
+   - delete the Cosmos account
+   - delete the Function App or Web App
+   - delete all role assignments
+   - replace managed identities
+   - change environment names
+   - modify Event Hub behaviour
+   - modify application business logic
+   - expose secrets
+   - use newGuid() for repeatable infrastructure deployments
+   - make unrelated formatting changes
+
+8. Check why the pipeline described as "Function App-only deployment" still
+   attempts to deploy Cosmos SQL role assignments. Identify whether it invokes
+   the full app.bicep, a shared role module, or another infrastructure
+   deployment.
+
+9. Determine whether adding the temporary HTTP trigger requires:
+   A. only a Function App package/ZIP deployment, or
+   B. an infrastructure deployment.
+   If no new resource, identity permission, or app setting is required,
+   recommend the existing code-only deployment path.
+
+10. Before editing anything, report:
+    - failing file and line
+    - failing Bicep symbolic resource name
+    - generated role-assignment name/GUID logic
+    - existing principal source
+    - new principal source
+    - root cause
+    - proposed files to change
+    - whether an obsolete assignment requires one-time cleanup
+
+11. Then make only the minimum necessary changes.
+
+12. After making the changes:
+    - show the exact diff
+    - run or recommend bicep build
+    - run or recommend bicep lint
+    - run a what-if deployment
+    - confirm no resource deletion or replacement is planned
+    - provide the exact deployment command already consistent with this repo
+
+13. If an old Cosmos SQL role assignment must be removed, do not remove it
+    automatically. Provide a read-only command to list assignments first.
+    Then provide the exact delete command separately and clearly state which
+    assignment GUID and old principal it would remove.
+
+14. Also inspect the deployment error for any second independent failure.
+    Do not assume every failed deployment is caused by the same role
+    assignment. Report each failure separately.
+
+Start with investigation and findings. Do not edit files until the root cause
+and proposed minimal diff are shown.
