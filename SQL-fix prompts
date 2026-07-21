@@ -232,3 +232,47 @@ Tasks:
     - only intended Cosmos SQL role assignments created
 
 Do not make unrelated changes.
+
+
+
+
+
+
+
+
+
+
+
+
+I have undone the latest no-new-file/two-pass pipeline implementation.
+
+Please inspect the current working tree only. Do not make any edits.
+
+Confirm whether the repository is now back to the single reusable
+cosmos-sql-role-assignment.bicep module approach.
+
+Report:
+
+1. Current changed and untracked files.
+2. Whether pipelines/deploy.steps.yml still contains any AzureCLI identity
+   lookup or "Finalize Function/Web App Cosmos SQL role assignments" steps.
+3. Whether app.bicep and web-app.bicep use module calls to
+   cosmos-sql-role-assignment.bicep.
+4. For each module call:
+   - calling file
+   - symbolic module name
+   - principalId source
+   - Cosmos role
+   - Cosmos account
+5. Confirm that the module assignment name uses:
+   guid(databaseAccount.id, principalId, roleDefinitionGuid)
+6. Confirm that no Cosmos account, database, container, Function App,
+   Web App, or managed identity is being renamed or replaced.
+7. Check for duplicate direct sqlRoleAssignments left alongside the module
+   calls.
+8. Check cosmos-nosql.bicep and confirm whether its user-group assignment uses
+   a stable GUID containing account, group principal, and role.
+9. Run Bicep build/lint if available.
+10. Provide the exact commands for a Dev what-if deployment.
+
+Do not change any files.
