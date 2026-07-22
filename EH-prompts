@@ -562,3 +562,50 @@ After making the changes, show me:
 - confirmation that no unrelated files were modified.
 
 Do not run deployments, create new Azure resources, add new role-assignment templates, or make broad refactoring changes. Only update the repository files needed for this Function App connectivity test.
+
+
+
+duapi fix:-
+
+Fix only the DU API artifact packaging error:
+
+"Invalid requirement: '../common'. File '../common' does not exist."
+
+Do not modify Event Hub publisher logic, Function App code, Bicep files,
+frontend source code, Cosmos resources, or application behavior.
+
+In pipelines/build/function-package.yaml, update only the BuildDuApiWebApp job:
+
+1. Create a clean staging folder under:
+   $(Build.ArtifactStagingDirectory)/du-api-package
+
+2. Copy all files from:
+   $(Build.SourcesDirectory)/src/du_api_webapp
+   into the staging folder.
+
+3. Copy all files from:
+   $(Build.SourcesDirectory)/src/common
+   into:
+   $(Build.ArtifactStagingDirectory)/du-api-package/common
+
+4. In only the staged requirements.txt, replace the exact line:
+   ../common
+   with:
+   ./common
+
+5. Do not modify the source requirements.txt file.
+
+6. Validate that these files exist before archiving:
+   - du-api-package/requirements.txt
+   - du-api-package/common/pyproject.toml
+   - du-api-package/common/common/eventhub/publisher.py
+
+7. Archive the staging folder with includeRootFolder=false as:
+   $(Build.ArtifactStagingDirectory)/du-api-webapp.zip
+
+8. Keep the existing artifact name du-api-webapp.
+
+9. Do not add frontend extraction, npm install, npm build, or repackaging
+   steps.
+
+Show the exact YAML diff before applying it.
