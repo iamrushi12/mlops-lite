@@ -1,0 +1,275 @@
+Act as a senior Azure infrastructure and Python application engineer.
+
+I need you to investigate a storage account restructuring requirement in this repository. Do not modify any files yet. First perform a complete impact analysis and give me a clear report.
+
+Business requirement:
+
+We currently have one existing storage account used by multiple components. That existing storage account and all existing containers, files, queues, tables, role assignments, and configuration must remain untouched.
+
+We need to confirm whether the target design should be:
+
+1. Existing storage account:
+   - Remains unchanged.
+   - Continues to support all current responsibilities that should stay there.
+   - Likely continues as the output storage account.
+   - No existing container or data should be deleted, renamed, moved, or recreated.
+
+2. New dedicated DU input storage account:
+   - Dedicated to DU input files.
+   - Expected container may be `du-input`.
+
+3. New dedicated temporary storage account:
+   - Used for Document Intelligence or pipeline intermediate files.
+   - Current code may use `temp-storage`, while the requirement discussion mentioned `tmp`.
+   - Temporary files must be purged after each execution, but only execution-specific files must be deleted. The whole container must never be purged if concurrent executions may be running.
+
+Your task now is analysis only.
+
+Inspect the complete repository, especially:
+
+- infra/templates/app.bicep
+- infra/templates/web-app.bicep
+- infra/templates/cosmos-nosql.bicep
+- pipelines/deploysteps.yml
+- variables/variables.yml
+- all variables-<environment>.yml files
+- all application code related to Azure Blob Storage
+- all code related to Document Intelligence
+- all code related to pipeline intermediate storage
+- all code related to `du-input`
+- all code related to `du-output`
+- all code related to `temp-storage`
+- all references to the current storage account
+- all storage-related RBAC assignments
+- all storage-related app settings
+- all storage plugin configuration
+- all blob upload, download, and delete operations
+
+Search for at least these terms:
+
+- storageAccount
+- storageAccountName
+- du-input
+- du-output
+- temp-storage
+- tmp
+- API_INPUT_STORAGE_PLUGIN
+- API_OUTPUT_STORAGE_PLUGIN
+- PLUGIN_STORAGE_INPUT_AZURE_ACCOUNT_URL
+- PLUGIN_STORAGE_OUTPUT_AZURE_ACCOUNT_URL
+- PLUGIN_STORAGE_INTERMEDIATE_AZURE_ACCOUNT_URL
+- RUNNER_STORAGE_INTERMEDIATE
+- AzureWebJobsStorage
+- EmailStorage
+- SOURCE_CONTAINER
+- DESTINATION_CONTAINER
+- upload_blob
+- delete_blob
+- BlobServiceClient
+- AzureBlobServiceClientPlugin
+- Document Intelligence
+- documentIntelligence
+- intermediate storage
+
+Do not make assumptions based only on variable names. Trace actual usages in application code.
+
+Provide the output in the following exact structure.
+
+1. Current storage account usage map
+
+For every usage of the current storage account, provide:
+
+- file path
+- line or code section
+- component using it
+- app setting or parameter name
+- container, queue, or table involved
+- whether it is read, write, delete, runtime, or deployment usage
+- whether it must remain on the existing account
+
+2. Current container map
+
+List every container currently defined or referenced, including:
+
+- container name
+- storage account it currently belongs to
+- which component uses it
+- purpose
+- whether it contains permanent or temporary data
+- whether it can safely be redirected to a new account
+- whether the existing container must remain untouched
+
+3. Confirm the intended three-account design
+
+Based on actual code, state whether the safest target design is:
+
+- existing account for current runtime, email, output, queues, tables, and current data
+- new account for `du-input`
+- new account for temporary or intermediate storage
+
+If this is not correct, explain exactly why.
+
+4. Temporary storage ownership and cleanup
+
+Trace which component actually creates and uses temporary files.
+
+Identify:
+
+- exact application or service responsible
+- exact files and functions
+- upload location
+- temporary path pattern
+- whether cleanup already exists
+- whether cleanup happens on success
+- whether cleanup happens on failure
+- whether cleanup is execution-specific
+- where the safest cleanup should be implemented if missing
+
+Do not recommend purging the full container.
+
+5. Function App storage settings
+
+Inspect the storage-related settings in `app.bicep` and determine whether each is actively used or legacy:
+
+- AZURE_INPUT_STORAGE_ACCOUNT_URL
+- AZURE_INPUT_STORAGE_ACCOUNT_NAME
+- AZURE_OUTPUT_STORAGE_ACCOUNT_URL
+- AZURE_OUTPUT_STORAGE_ACCOUNT_NAME
+- DU_API_INPUT_CONTAINER
+- DU_API_OUTPUT_CONTAINER
+- SOURCE_CONTAINER
+- DESTINATION_CONTAINER
+- AzureWebJobsStorage__accountName
+- EmailStorage__blobServiceUri
+- EmailStorage__queueServiceUri
+
+For each setting, show where it is read in application code.
+
+6. Web App storage settings
+
+Inspect storage settings in `web-app.bicep`, especially for:
+
+- Pipeline Orchestrator
+- DU API Web App
+
+Confirm which settings should point to:
+
+- existing account
+- new input account
+- new temporary account
+
+Do not modify anything.
+
+7. RBAC analysis
+
+For each current application identity, list:
+
+- identity name
+- current storage role
+- current scope
+- required access on new input account
+- required access on new temporary account
+- whether Blob Data Contributor is sufficient
+- whether Storage Account Contributor, Queue Data Contributor, or Table Data Contributor is actually required
+
+Use least privilege. Do not copy all existing roles automatically.
+
+8. Networking analysis
+
+Confirm whether the two new storage accounts must copy the existing account’s:
+
+- network ACLs
+- VNet rules
+- subnet rules
+- IP rules
+- public network access configuration
+- private endpoint expectations
+- shared key configuration
+- TLS configuration
+
+Identify any environment-specific differences for DV, QA, UT, PP, PR, or DR.
+
+9. Naming analysis
+
+Find existing storage naming conventions in this repository.
+
+Suggest two possible names for:
+
+- new DU input storage account
+- new temporary storage account
+
+Respect Azure storage account restrictions.
+
+Do not finalize the names. Mark them as pending Platform Engineering confirmation.
+
+Also determine whether the temporary container should remain `temp-storage` or be changed to `tmp`, based on actual code references and the amount of impact.
+
+10. Exact file-change plan
+
+Provide the minimum required list of files that would need modification if we proceed.
+
+For each file, explain:
+
+- why it must change
+- what type of change is required
+- what must remain untouched
+- whether it is infrastructure, pipeline, configuration, RBAC, or application cleanup
+
+Explicitly state whether `cosmos-nosql.bicep` requires any change. It should not be changed unless there is a direct proven dependency.
+
+11. Risks and blockers
+
+List all unresolved questions, risks, and possible deployment blockers, including:
+
+- destructive changes to the existing account
+- existing container replacement
+- role assignment conflicts
+- storage firewall or networking issues
+- managed identity permissions
+- global uniqueness of storage names
+- application settings that appear unused or duplicated
+- concurrent cleanup risks
+- environment-specific values
+- missing tests
+
+12. Recommended implementation order
+
+Give a safe step-by-step implementation plan, but do not make changes.
+
+13. Final decision table
+
+Answer these questions clearly:
+
+- Should the existing storage account continue as the output account?
+- Should `du-input` move to a new storage account?
+- Should temporary storage move to another new account?
+- Should the old `du-input` container remain untouched?
+- Should the old `du-output` container remain untouched?
+- Should Function App runtime storage remain on the existing account?
+- Should email storage remain on the existing account?
+- Should Cosmos files remain unchanged?
+- Should pipeline deployment require a new task, or only new parameters?
+- Which service should purge temporary files?
+- Should the temporary container be `temp-storage` or `tmp`?
+
+Important rules:
+
+- Do not edit any file.
+- Do not generate code changes.
+- Do not create new Bicep modules.
+- Do not add new pipeline tasks.
+- Do not touch Cosmos DB resources.
+- Do not suggest deleting, renaming, or migrating existing data.
+- Do not assume every storage-related setting must change.
+- Base every conclusion on actual repository references.
+- If something cannot be confirmed from the code, mark it as unresolved instead of guessing.
+
+At the end, provide a concise summary titled:
+
+“Recommended next decision”
+
+This should contain only:
+- confirmed architecture
+- unresolved questions
+- exact files likely to change
+- whether the task fits within two working days
