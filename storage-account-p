@@ -273,3 +273,126 @@ This should contain only:
 - unresolved questions
 - exact files likely to change
 - whether the task fits within two working days
+
+
+
+
+
+
+
+
+
+2ns prompt :- 
+
+Continue from your storage account restructuring analysis.
+
+Do not modify any files yet.
+
+I need you to resolve the two remaining application-level uncertainties using exact repository evidence.
+
+## Investigation 1: Cross-account du-output to du-input routing
+
+You identified that the current Function App or routing logic copies classification output from `du-output` to `du-input` using a single storage client and therefore assumes both containers belong to the same storage account.
+
+Trace this flow end to end.
+
+For every relevant call, provide:
+
+- exact file path
+- function or class name
+- caller and callee
+- current source container
+- current destination container
+- how the BlobServiceClient is created
+- which account URL, account name, key, credential, or managed identity is used
+- which Azure identity executes the operation
+- whether the operation is server-side copy, download/upload, or another mechanism
+- whether it will work after `du-input` moves to a new account
+- exact minimal refactor required to support:
+  - source: existing storage account / `du-output`
+  - destination: new input storage account / `du-input`
+
+Determine whether the safest implementation is:
+
+A. Separate source and destination BlobServiceClient instances followed by download/upload.
+
+B. Cross-account server-side copy using a source URL.
+
+C. Another existing repository abstraction.
+
+Evaluate authentication, private network, managed identity, and shared-key implications for each option.
+
+Recommend only the smallest change compatible with the repository’s current storage abstractions.
+
+Also confirm whether the Function App, Pipeline Orchestrator Web App, or another component needs `Storage Blob Data Contributor` on the new input account.
+
+## Investigation 2: Intermediate temporary cleanup lifecycle
+
+Trace the complete lifecycle of Pipeline Orchestrator intermediate storage.
+
+Inspect at least:
+
+- azure_intermediate_storage.py
+- storage_base.py
+- resolver.py
+- state_manager.py
+- execution lifecycle code
+- task success handlers
+- task failure handlers
+- retry exhaustion handlers
+- pipeline completion handlers
+- exception and cancellation paths
+
+Answer with exact evidence:
+
+- where temporary blobs are created
+- exact blob path format
+- where prefix-based deletion is implemented
+- every call site that invokes deletion
+- whether deletion occurs after successful pipeline execution
+- whether deletion occurs after failed pipeline execution
+- whether deletion occurs after retry exhaustion
+- whether deletion occurs after cancellation
+- whether deletion is pipeline-scoped or task-scoped
+- whether any path could leave orphaned temporary data
+- whether any code purges the entire container
+
+If cleanup is incomplete, identify the exact safest lifecycle location to add it.
+
+The cleanup design must:
+
+- delete only the current execution’s prefix
+- never empty the entire container
+- not delete another concurrent execution’s files
+- execute on both success and failure
+- preserve the original exception if cleanup itself fails
+- log cleanup failure separately
+- remain idempotent
+
+## Output format
+
+Provide:
+
+1. Cross-account routing evidence
+2. Current routing limitation
+3. Recommended minimal routing change
+4. Identity and RBAC requirements
+5. Temporary storage lifecycle evidence
+6. Cleanup coverage matrix:
+   - success
+   - failure
+   - retry exhaustion
+   - cancellation
+7. Recommended cleanup change, if required
+8. Exact files that would need application-code modifications
+9. Updated effort estimate
+10. Final unresolved questions
+
+Important rules:
+
+- Do not edit files.
+- Do not generate a patch yet.
+- Do not change infrastructure.
+- Do not touch Cosmos.
+- Do not assume functionality based only on app-setting names.
+- Mark anything not proven from code as unresolved.
