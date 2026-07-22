@@ -477,3 +477,88 @@ Then make the changes and provide:
 - One curl example using a sample JSON payload.
 - The environment-variable names that must exist after deployment.
 - Instructions for removing the temporary trigger after testing.
+
+
+
+connectivity:-
+
+Please update the repository to make the temporary Function App HTTP trigger `eventhub_connectivity_test` deploy and run entirely through code and pipelines, without any manual Azure Portal or terminal changes.
+
+Make only the minimum required changes. Do not modify unrelated web apps, poller services, orchestrator services, Cosmos DB role assignments, storage accounts, existing triggers, or business logic.
+
+Requirements:
+
+1. Function dependency
+- In `src/functions/requirements.txt`, ensure the Azure Event Hubs Python SDK is included:
+  `azure-eventhub>=5.11,<6`
+- Do not remove or downgrade existing dependencies.
+
+2. Function package pipeline
+- Find the pipeline template that builds `doc-understanding-build.zip`, likely `pipelines/build/function-package.yml`.
+- Before archiving the Function App, install dependencies from:
+  `src/functions/requirements.txt`
+- Install them into:
+  `src/functions/.python_packages/lib/site-packages`
+- Use `python -m pip`.
+- Ensure the archive is created from the contents of `src/functions` with `includeRootFolder: false`.
+- The ZIP root must contain:
+  `function_app.py`
+  `host.json`
+  `requirements.txt`
+  `.python_packages`
+  `services`
+- Do not create a ZIP containing an extra `src/functions` parent directory.
+- Preserve the existing artifact name and publish location expected by `deploy.steps.yml`.
+
+3. Function App infrastructure parameters
+- Find the Bicep template used by the task named:
+  `Setup App Resources FunctionApp, Keyvault, StorageAccounts and AppInsight`
+- Add these parameters if they do not already exist:
+
+  `@secure()`
+  `param eventHubConnectionString string`
+
+  `param eventHubName string`
+
+- Add these values to the existing Function App app settings:
+
+  `EVENT_HUB_CONNECTION_STRING = eventHubConnectionString`
+  `EVENT_HUB_NAME = eventHubName`
+
+- Preserve all existing app settings. Do not replace the entire settings collection.
+- Do not hard-code either value.
+- Do not expose the connection string in outputs, logs, or comments.
+
+4. Deployment pipeline mapping
+- In `pipelines/deploy.steps.yml`, update only the existing Function App infrastructure deployment task.
+- Pass the Azure DevOps variable-group values into the Bicep template using:
+
+  `-eventHubConnectionString "$(EVENT_HUB_CONNECTION_STRING)"`
+  `-eventHubName "$(EVENT_HUB_NAME)"`
+
+- Keep these tasks enabled:
+  - Function App infrastructure/setup deployment
+  - Function App code deployment
+- Do not enable unrelated Web App, Poller, UI, Orchestrator, Cosmos, or role-assignment tasks.
+
+5. Temporary HTTP trigger
+- Preserve the existing `eventhub_connectivity_test` HTTP POST trigger in `src/functions/function_app.py`.
+- It must read:
+  `EVENT_HUB_CONNECTION_STRING`
+  `EVENT_HUB_NAME`
+- If the connection string already contains `EntityPath`, use that entity and do not pass a duplicate `eventhub_name`.
+- Otherwise use `EVENT_HUB_NAME`.
+- Continue using:
+  `TransportType.AmqpOverWebsocket`
+- Keep `auth_level=func.AuthLevel.FUNCTION`.
+- Do not log credentials or the full connection string.
+- Return a safe JSON success or failure response.
+
+6. Validation
+After making the changes, show me:
+- the exact files changed;
+- a concise diff summary;
+- the final package path used by the deploy task;
+- confirmation that no unrelated files were modified.
+
+Do not run deployments, create new Azure resources, add new role-assignment templates, or make broad refactoring changes. Only update the repository files needed for this Function App connectivity test.
