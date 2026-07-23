@@ -609,3 +609,11 @@ In pipelines/build/function-package.yaml, update only the BuildDuApiWebApp job:
    steps.
 
 Show the exact YAML diff before applying it.
+
+
+
+The "Prepare staged DU API package" step is failing with exit code 1 because one of the validation paths is incorrect.
+
+Please review the staging script in pipelines/build/function-package.yaml and fix only the validation checks. Verify that the paths match the actual structure created after copying src/common and src/axa_packages into $(Build.ArtifactStagingDirectory)/du-api-package.
+
+Do not change the packaging logic, deployment steps, or requirements rewriting. Only correct the failing validation path and add a couple of echo statements to print the staged folder structure for debugging.
