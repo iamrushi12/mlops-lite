@@ -640,4 +640,86 @@ query :
 traces
 | where timestamp > ago(7d)
 | where message contains "CombineExtractionOutputs"
-| order by timestamp desc
+| order by timestamp des
+
+
+
+
+jsin correction:-
+
+
+Please make a minimal and safe fix for the JSONDecodeError occurring in the CombineExtractionOutputs flow.
+
+Current error:
+requests.exceptions.JSONDecodeError:
+Expecting value: line 1 column 1 (char 0)
+
+The traceback points to:
+- function_app.py, inside combine_extraction_outputs_http
+- services/post_processing/combine_json.py
+- upload_json_output()
+- the failing statement is approximately: result = response.json()
+
+Requirements:
+
+1. First inspect the existing implementation of:
+   - combine_extraction_outputs_http
+   - upload_json_output()
+   - the HTTP request that produces the `response`
+   - all current callers and tests
+
+2. Do not change the business flow, Event Hub payload, function routes, infrastructure, pipeline YAML, Bicep files, application settings, authentication logic, storage paths, or unrelated code.
+
+3. Make only the smallest necessary change inside the response-handling logic of `upload_json_output()`.
+
+4. Before parsing the response, log the following safely:
+   - HTTP status code
+   - Content-Type header
+   - whether the body is empty
+   - a truncated response body, maximum 1000 characters
+
+5. Do not log secrets, authorization headers, tokens, connection strings, or full sensitive payloads.
+
+6. Call `response.raise_for_status()` before treating the request as successful.
+
+7. Parse JSON only when:
+   - the response body is not empty, and
+   - the response Content-Type indicates JSON
+
+8. Correctly handle successful empty responses such as HTTP 204 without raising JSONDecodeError.
+
+9. Preserve the current return type and expected behaviour of `upload_json_output()`.
+   Inspect how its return value is used before deciding what should be returned for an empty successful response.
+   Do not blindly return `{}` if callers expect a filename, blob name, URL, string, or another specific type.
+
+10. For a successful non-JSON response:
+    - log a clear warning
+    - preserve compatibility with the current caller
+    - do not silently hide an invalid downstream response if the caller requires JSON data
+
+11. For unsuccessful HTTP responses:
+    - allow `raise_for_status()` to raise the appropriate HTTP exception
+    - include useful status/body information in logs
+    - do not convert every error into a generic JSONDecodeError
+
+12. Add or update focused unit tests covering:
+    - 200 response with valid JSON
+    - 201 response with valid JSON, if relevant
+    - 204 response with an empty body
+    - 200 response with an empty body
+    - 200 response with plain text or HTML
+    - 401/403/404/500 response
+    - malformed JSON with application/json Content-Type
+
+13. Do not move the Event Hub publishing call or change whether it happens before or after `upload_json_output()`. Only identify and report its current ordering.
+
+14. After making the change, provide:
+    - files changed
+    - exact reason for each change
+    - the final code diff
+    - tests added or updated
+    - test results
+    - confirmation that no deployment, infrastructure, Event Hub, authentication, or unrelated files were modified
+
+Important:
+Do not refactor the whole function or introduce new abstractions unless absolutely required. Keep the patch small, backward-compatible, and limited to resolving and diagnosing the response parsing failure.
