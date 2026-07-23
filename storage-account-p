@@ -396,3 +396,683 @@ Important rules:
 - Do not touch Cosmos.
 - Do not assume functionality based only on app-setting names.
 - Mark anything not proven from code as unresolved.
+
+
+
+
+code changes :-
+
+Act as a senior Azure MLOps, DevOps, Python and Bicep engineer with extensive production experience.
+
+Implement the storage account restructuring ticket in this repository using the smallest possible set of changes.
+
+You already completed two repository investigations in this session. Use those findings as evidence, but re-open the actual files before editing so that no decision is based only on chat memory.
+
+This is a production-sensitive change.
+
+Do not perform broad refactoring, cleanup, modernization, naming cleanup, formatting-only changes, or architecture redesign.
+
+If any required change falls outside the explicit scope below, stop and ask for approval before editing it.
+
+======================================================================
+AUTHORITATIVE BUSINESS REQUIREMENT
+======================================================================
+
+The current single storage account must be split logically into three storage responsibilities.
+
+1. Existing storage account
+
+The current storage account must remain deployed and unchanged.
+
+It must continue supporting its current responsibilities, including:
+
+- Azure Functions host/runtime storage
+- AzureWebJobsStorage
+- Function App email blob and queue storage
+- EmailStorage__blobServiceUri
+- EmailStorage__queueServiceUri
+- SOURCE_CONTAINER
+- DESTINATION_CONTAINER
+- fleets-emails
+- fleets-documentunderstanding-jobs
+- existing du-input container
+- existing du-output container
+- current queues and tables
+- existing output data and routing
+- all existing files and historical data
+- all current role assignments unless a new assignment is separately required
+
+Do not:
+
+- rename the existing storage account
+- change its generated name
+- replace or recreate it
+- delete it
+- move existing data
+- delete, rename or remove existing containers
+- remove existing du-input
+- remove existing du-output
+- repoint Azure Functions runtime storage
+- repoint email ingestion storage
+- change existing output storage
+- alter existing queues or tables
+- change existing lifecycle behavior
+- perform a data migration
+
+The existing account remains the output account.
+
+2. New DU input storage account
+
+Create one new storage account dedicated to DU input.
+
+It must contain:
+
+- container name: du-input
+
+The following consumers must use the new input account:
+
+- DU API input storage plugin
+- Pipeline Orchestrator input storage plugin
+- Pipeline Orchestrator input account URL
+- Function App destination when routing classification output into du-input
+
+The existing du-input container in the old account must remain present and untouched. New traffic should use the new input account after the change.
+
+3. New Pipeline Orchestrator temporary storage account
+
+Create one new storage account dedicated to Pipeline Orchestrator intermediate and temporary storage.
+
+It must contain:
+
+- container name: temp-storage
+
+Keep the existing name `temp-storage`.
+
+Do not rename it to `tmp`.
+
+The Pipeline Orchestrator intermediate storage configuration must point to this new account.
+
+4. Output behavior
+
+DU output must remain on the existing storage account.
+
+Keep these concepts on the current account:
+
+- du-output
+- API_OUTPUT_STORAGE_PLUGIN
+- PLUGIN_STORAGE_OUTPUT_AZURE_ACCOUNT_URL
+- PLUGIN_STORAGE_OUTPUT_AZURE_CONTAINER_NAME
+- existing output repositories and readers
+
+======================================================================
+PURGE REQUIREMENT
+======================================================================
+
+The business conversation explicitly requires temporary files in the dedicated temporary storage account to be purged after they are no longer needed.
+
+However, the repository investigation showed that cleanup logic already exists and is task/prefix scoped.
+
+For this ticket:
+
+- preserve the existing purge mechanism
+- ensure that the existing temporary-storage plugin points to the new temporary account
+- ensure existing task-scoped deletion continues to work against that account
+- do not delete the entire container
+- do not introduce container-wide purge
+- do not redesign cleanup lifecycle
+- do not change scheduler, retry, cancellation or terminal pipeline behavior
+- do not add a new cleanup service, timer, Function, lifecycle policy or pipeline task
+- do not delete intermediate output earlier than the current code does
+
+Only modify cleanup-related code if the storage account split itself prevents the existing purge calls from using the new temporary account.
+
+If any broader cleanup change appears necessary, stop and ask for approval.
+
+======================================================================
+CONFIRMED REPOSITORY FINDINGS
+======================================================================
+
+Treat the following as confirmed, but verify them against the files before editing:
+
+1. The existing account is used for Function runtime, email storage, current input/output containers, queues and tables.
+
+2. DU API and Pipeline Orchestrator currently receive input and output plugin configuration from web-app.bicep.
+
+3. Pipeline Orchestrator intermediate storage currently uses:
+
+- PLUGIN_STORAGE_INTERMEDIATE_AZURE_ACCOUNT_URL
+- PLUGIN_STORAGE_INTERMEDIATE_AZURE_CONTAINER_NAME
+- container: temp-storage
+
+4. The Function App routing code currently copies classification output:
+
+- source: existing account / du-output
+- destination: existing account / du-input
+
+5. That routing currently uses one BlobServiceClient and assumes both containers are in the same account.
+
+6. After du-input moves, the routing must support:
+
+- source BlobServiceClient for existing output account
+- destination BlobServiceClient for new input account
+
+7. The smallest compatible transfer is:
+
+- download/read from existing du-output
+- upload/write to new du-input
+- preserve the same object name
+- do not delete the source unless current behavior already does so
+
+8. Function App managed identity requires Storage Blob Data Contributor on the new input account.
+
+9. DU API and Pipeline Orchestrator require Blob Data Contributor on accounts they directly access.
+
+10. There is no proven requirement to grant Queue Data Contributor, Table Data Contributor or Storage Account Contributor on the new accounts.
+
+11. cosmos-nosql.bicep has no dependency on this split and must remain unchanged.
+
+======================================================================
+MANDATORY APPROVAL GATE
+======================================================================
+
+Before changing any file, perform a short verification pass and present a pre-change implementation plan.
+
+The plan must include:
+
+- exact files you intend to modify
+- exact resources to add
+- exact app settings to repoint
+- exact Python function or helper to change
+- exact RBAC assignments to add
+- proposed naming expressions for both new storage accounts
+- confirmation that no existing storage resource will be removed
+- confirmation that no cleanup lifecycle logic will be redesigned
+- confirmation that Cosmos will not be changed
+
+Then proceed automatically only if every planned change is within the scope of this prompt.
+
+Stop and ask me before editing if you conclude that any of the following is necessary:
+
+- changing the existing storage account resource
+- deleting or renaming an existing container
+- moving existing data
+- changing Function runtime storage
+- changing email storage
+- moving du-output
+- adding a new Azure service
+- adding a new Bicep module
+- adding a new pipeline task or script
+- altering scheduler, retry or cancellation behavior
+- introducing container-wide purge
+- changing Cosmos
+- changing Event Hub
+- modifying OIDC
+- broad application refactoring
+- changing unrelated environment variables
+- adding account keys or SAS tokens
+
+======================================================================
+FILES TO INSPECT
+======================================================================
+
+At minimum inspect:
+
+- infra/templates/app.bicep
+- infra/templates/web-app.bicep
+- infra/templates/cosmos-nosql.bicep
+- pipelines/deploysteps.yml
+- variables/variables.yml
+- every variables-<environment>.yml file
+- src/functions/services/pipeline_orchestrator.py
+- src/functions/function_app.py
+- the existing blob helper module used by Function App routing
+- DU API storage configuration and document service
+- Pipeline Orchestrator intermediate storage plugin
+- Pipeline Orchestrator state manager deletion methods
+- existing storage-related tests
+
+Trace all call sites before changing any function signature.
+
+======================================================================
+STORAGE ACCOUNT NAMING
+======================================================================
+
+Use the repository’s current storage naming convention.
+
+Requirements:
+
+- lowercase letters and numbers only
+- maximum 24 characters
+- deterministic
+- environment-specific
+- stable across repeated deployments
+- not DV-specific
+- no hyphens
+- based on AppName, purpose and Environment where possible
+
+Prefer deriving names in Bicep if that is consistent with the current pattern and avoids duplicate environment variables.
+
+Use descriptive Bicep symbols such as:
+
+- duInputStorageAccount
+- orchestratorTempStorageAccount
+
+Use descriptive parameter or variable names such as:
+
+- duInputStorageAccountName
+- orchestratorTempStorageAccountName
+
+Do not finalize a Platform Engineering naming convention that is not present in the repository.
+
+Clearly report the chosen provisional naming expressions after implementation so they can be reviewed.
+
+Do not rename any existing resource.
+
+======================================================================
+APP.BICEP CHANGES
+======================================================================
+
+Modify infra/templates/app.bicep with minimal additions.
+
+1. Preserve the current storageAccount resource exactly unless a non-functional reference extraction is unavoidable.
+
+2. Add two new storage account resources:
+
+- dedicated DU input account
+- dedicated Pipeline Orchestrator temporary account
+
+Use the existing account as the security and networking baseline:
+
+- same location pattern
+- same SKU unless an existing repository rule proves otherwise
+- same kind
+- same TLS version
+- HTTPS-only behavior
+- public blob access disabled
+- matching network ACL model
+- matching VNet/subnet rules
+- matching environment-specific UT and PR subnet additions
+- matching IP rule input
+- matching public network access posture
+- matching shared-key posture because current storage plugins include account-key based configuration
+- same relevant tags
+
+Do not create a new Bicep module.
+
+Avoid broad refactoring of the existing storage resource.
+
+3. Add containers:
+
+Input account:
+
+- du-input
+- public access: None
+
+Temporary account:
+
+- temp-storage
+- public access: None
+
+The containers must depend on their respective new accounts.
+
+Do not remove the existing du-input and du-output resources from the old account.
+
+4. Function App setting
+
+Add or repurpose one clearly appropriate Function App setting for the new input account blob URL.
+
+Use the repository’s established naming pattern.
+
+Preferred semantic name:
+
+- DU_INPUT_STORAGE_ACCOUNT_URL
+
+Before adding it, verify whether an existing setting already has this exact intended meaning and is safe to activate.
+
+Do not repoint:
+
+- AzureWebJobsStorage__accountName
+- EmailStorage__blobServiceUri
+- EmailStorage__queueServiceUri
+- SOURCE_CONTAINER
+- DESTINATION_CONTAINER
+- fleets-emails
+- fleets-documentunderstanding-jobs
+
+5. Function App RBAC
+
+Grant the Function App system-assigned managed identity:
+
+- Storage Blob Data Contributor on the new DU input account
+
+Preserve its current permissions on the existing account.
+
+Do not add queue, table or account-contributor permissions to the new input account.
+
+Use a deterministic GUID seed containing:
+
+- identity or application name
+- target storage account name
+- role purpose
+
+This must not collide with existing assignments.
+
+======================================================================
+WEB-APP.BICEP CHANGES
+======================================================================
+
+Modify infra/templates/web-app.bicep minimally.
+
+1. Add parameters or derived references for:
+
+- new DU input account name
+- new temporary account name
+
+2. Declare both as existing storage resources because app.bicep creates them first.
+
+Keep the existing storage account declaration.
+
+3. Pipeline Orchestrator input
+
+Point these to the new input account:
+
+- API_INPUT_STORAGE_PLUGIN
+- PLUGIN_STORAGE_INPUT_AZURE_ACCOUNT_URL
+- PLUGIN_STORAGE_INPUT_AZURE_CONTAINER_NAME
+
+Keep container name:
+
+- du-input
+
+Preserve the existing plugin JSON shape and authentication convention.
+
+4. Pipeline Orchestrator output
+
+Keep these on the existing account:
+
+- API_OUTPUT_STORAGE_PLUGIN
+- PLUGIN_STORAGE_OUTPUT_AZURE_ACCOUNT_URL
+- PLUGIN_STORAGE_OUTPUT_AZURE_CONTAINER_NAME
+- du-output
+
+5. Pipeline Orchestrator intermediate storage
+
+Point these to the new temporary account:
+
+- PLUGIN_STORAGE_INTERMEDIATE_AZURE_ACCOUNT_URL
+- PLUGIN_STORAGE_INTERMEDIATE_AZURE_CONTAINER_NAME
+
+Keep container name:
+
+- temp-storage
+
+Do not modify intermediate storage semantics or cleanup timing.
+
+6. DU API
+
+Point:
+
+- API_INPUT_STORAGE_PLUGIN to new input account / du-input
+
+Keep:
+
+- API_OUTPUT_STORAGE_PLUGIN on existing account / du-output
+
+Do not modify DU API business logic unless compilation or tests prove a configuration-handling change is essential.
+
+7. Web App RBAC
+
+Add:
+
+- DU API system-assigned identity:
+  Storage Blob Data Contributor on new input account
+
+- Pipeline Orchestrator system-assigned identity:
+  Storage Blob Data Contributor on new input account
+
+- Pipeline Orchestrator system-assigned identity:
+  Storage Blob Data Contributor on new temporary account
+
+Do not grant DU API access to the temporary account unless actual code proves it directly accesses it.
+
+Preserve current role assignments on the existing account.
+
+======================================================================
+FUNCTION APP CROSS-ACCOUNT ROUTING
+======================================================================
+
+Modify only the minimum Function App code needed to route from the existing output account to the new input account.
+
+Primary expected file:
+
+- src/functions/services/pipeline_orchestrator.py
+
+Current behavior:
+
+- one BlobServiceClient is used for source and destination
+- source container is du-output
+- destination container is du-input
+- helper assumes both belong to one account
+
+Required behavior:
+
+- source client uses existing storage account
+- destination client uses new DU input account
+- source remains du-output
+- destination remains du-input
+- object name remains unchanged
+
+Implement the smallest compatible helper change.
+
+Preferred implementation:
+
+1. Create or receive a source BlobServiceClient for the existing account.
+2. Create or receive a destination BlobServiceClient for the new input account.
+3. Download the source blob bytes.
+4. Upload the bytes to the destination blob.
+5. Preserve existing overwrite behavior.
+6. Preserve current logging and exception propagation.
+7. Do not delete the source unless current behavior explicitly deletes it.
+8. Continue using DefaultAzureCredential/managed identity.
+9. Do not use account keys in Python.
+10. Do not generate SAS.
+11. Do not use start_copy_from_url.
+12. Do not introduce a new storage abstraction layer.
+
+A valid minimal shape is:
+
+- update copy_blob_between_containers to accept separate source and destination clients
+
+or:
+
+- add a narrowly scoped cross-account helper using the repository’s existing download_blob_to_bytes and upload_bytes_to_blob helpers
+
+Before changing the helper, inspect every call site.
+
+If it has other callers, preserve backwards compatibility or update only proven call sites with focused tests.
+
+The Function App must read the new input account URL from an app setting supplied by app.bicep.
+
+Do not modify DU API or Pipeline Orchestrator application code for this routing operation because the repository investigation proved the Function App owns it.
+
+======================================================================
+TEMPORARY PURGE BEHAVIOR
+======================================================================
+
+Do not create a new purge implementation.
+
+Verify only:
+
+- the intermediate storage plugin receives the new temporary account URL
+- temp-storage remains its configured container
+- existing delete_data prefix-based behavior still operates through that plugin
+- no code assumes intermediate storage is the existing account
+
+Do not modify:
+
+- state_manager task cleanup timing
+- scheduler terminal cleanup
+- cancellation behavior
+- retry exhaustion behavior
+- pipeline lifecycle
+- downstream intermediate-output retention
+
+Do not add lifecycle management policies.
+
+Do not empty temp-storage.
+
+If moving the account breaks an existing cleanup client construction, make only the configuration-level fix needed for the existing client to target the new account.
+
+If anything beyond that is necessary, stop and ask.
+
+======================================================================
+VARIABLES AND DEPLOYMENT PIPELINE
+======================================================================
+
+Modify only what is required in:
+
+- variables/variables.yml
+- applicable variables/variables-<environment>.yml files
+- pipelines/deploysteps.yml
+
+Variables:
+
+- add names only where they cannot be derived safely in Bicep
+- follow existing shared/environment-specific conventions
+- do not alter current inputBlobContainerName
+- do not alter current outputBlobContainerName
+- do not alter current networking variables
+- do not alter Cosmos variables
+- do not alter secret variables
+
+Deployment pipeline:
+
+Pass the new names into:
+
+- app.bicep deployment
+- web-app.bicep deployment
+
+Preserve the current deployment order.
+
+Do not add:
+
+- new deployment task
+- Azure CLI step
+- PowerShell step
+- role-finalization step
+- separate storage stage
+- manual deployment instruction
+
+This should remain an incremental Bicep deployment through existing tasks.
+
+======================================================================
+TESTING REQUIREMENTS
+======================================================================
+
+Add or update only focused tests related to this change.
+
+Function App routing tests must prove:
+
+- separate source and destination BlobServiceClient objects are used
+- source client targets existing output account
+- source container is du-output
+- destination client targets new input account
+- destination container is du-input
+- blob name is preserved
+- source data is not deleted unless existing semantics require it
+- download failure propagates
+- upload failure propagates
+- existing callers are not broken
+
+Infrastructure validation must prove:
+
+- two new accounts are added
+- new du-input container belongs to new input account
+- temp-storage belongs to new temporary account
+- existing storage account remains declared
+- existing du-input and du-output declarations are not removed
+- output settings still use existing account
+- runtime/email settings still use existing account
+- Cosmos file is unchanged
+
+Do not add tests for redesigned purge behavior.
+
+======================================================================
+VALIDATION
+======================================================================
+
+After editing:
+
+1. Run Bicep build or lint for modified Bicep files.
+2. Validate YAML syntax using repository-supported tooling.
+3. Run Python formatter/linter only on modified Python files.
+4. Run focused unit tests.
+5. Run existing relevant storage and Function tests.
+6. Review git diff.
+7. Remove unrelated formatting or generated-file changes.
+8. Confirm no Cosmos file changed.
+9. Confirm no cleanup lifecycle file changed unless only a proven storage-client configuration reference was necessary.
+10. Confirm no existing resource or container was removed.
+
+If Bicep tooling or tests are unavailable, state exactly which validation could not run. Do not claim success without evidence.
+
+======================================================================
+DESTRUCTIVE-CHANGE CHECK
+======================================================================
+
+Before finishing, inspect the diff specifically for accidental destructive changes.
+
+There must be no:
+
+- removal of existing storageAccount
+- change to its name expression
+- removal of storageAccount_inputContainer
+- removal of storageAccount_outputContainer
+- change to fleets-emails
+- change to fleets-documentunderstanding-jobs
+- change to du-output location
+- change to Function runtime account
+- change to email account
+- deletion or migration code
+- Cosmos changes
+- cleanup redesign
+- new service
+- new pipeline task
+
+If any appears, revert it before reporting completion.
+
+======================================================================
+FINAL RESPONSE FORMAT
+======================================================================
+
+After completing the implementation, report:
+
+1. Pre-change plan
+2. Files modified
+3. Exact new resources
+4. Proposed storage account naming expressions
+5. New containers and their parent accounts
+6. App settings changed
+7. App settings deliberately left unchanged
+8. RBAC assignments added
+9. Function App routing code change
+10. How existing purge behavior is preserved
+11. Tests added or updated
+12. Validation commands and actual results
+13. Git diff summary
+14. Unresolved items requiring Platform Engineering confirmation
+15. Explicit safety confirmations:
+
+- existing storage account was not renamed, removed or recreated
+- existing containers were not deleted or renamed
+- existing data was not touched
+- old du-input remains untouched
+- du-output remains on existing account
+- Function runtime storage remains unchanged
+- email storage remains unchanged
+- Cosmos remains unchanged
+- no cleanup lifecycle redesign was introduced
+- no new Azure service was added
+- no new pipeline task was added
+
+If any requirement cannot be implemented without violating these constraints, do not improvise. Stop and ask for approval.
