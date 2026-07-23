@@ -630,3 +630,14 @@ EVENT_HUB_CONNECTION_STRING: $(EVENT_HUB_CONNECTION_STRING)
 EVENT_HUB_NAME: $(EVENT_HUB_NAME)
 
 Use the values directly from the existing variable group in deploy.steps.yml, or map them to differently named pipeline variables. Do not change Bicep parameters, Event Hub code, or other variables.
+
+
+
+
+query :
+
+
+traces
+| where timestamp > ago(7d)
+| where message contains "CombineExtractionOutputs"
+| order by timestamp desc
