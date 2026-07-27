@@ -1076,3 +1076,72 @@ After completing the implementation, report:
 - no new pipeline task was added
 
 If any requirement cannot be implemented without violating these constraints, do not improvise. Stop and ask for approval.
+
+
+
+
+
+tep account part :- 
+
+Review and update only the main repository’s `app.bicep` file for the temporary storage-account wiring required by the multiple-storage-account ticket.
+
+Before changing anything, inspect the complete existing `app.bicep` implementation and compare the relevant Document Intelligence and temporary-storage sections with the equivalent implementation in the `DocumentUnderstandingPOC` repository. Do not assume that identically named resources have the same purpose. Follow the actual target architecture described below.
+
+Confirmed target architecture:
+
+1. DU input data must use Storage Account 1, which is the dedicated input storage account.
+2. DU output data must continue using Storage Account 2, which is the existing output storage account.
+3. DI temporary/intermediate data must use Storage Account 3, which is the dedicated temporary storage account containing the `tmp` or existing approved temporary container.
+4. The temporary data must later be purged by the Web App or Function App after execution. Do not implement application cleanup logic in `app.bicep`; this task is only for the required infrastructure and security wiring.
+5. Do not merge the responsibilities of the input, output, and temporary accounts.
+6. Do not redirect the existing output flow or modify unrelated existing storage wiring.
+
+Required work in `app.bicep`:
+
+- Identify the existing temporary storage account resource, its name variable, its network ACL configuration, and the Document Intelligence resource.
+- Confirm whether the temporary storage account is the storage account intended for direct Document Intelligence access.
+- Configure the temporary storage account for Document Intelligence access by following the established secure pattern already used in `DocumentUnderstandingPOC`, but adapt it to the resource names and structure of the main repository.
+- Add the required `resourceAccessRules` entry for the existing Document Intelligence resource to the temporary storage account’s `networkAcls`, only if it is not already present.
+- Ensure the Document Intelligence resource’s allowed outbound FQDN configuration includes the temporary storage account blob endpoint.
+- Do not blindly replace the existing storage-account FQDN. Preserve any existing storage FQDN still required by Document Intelligence and append the temporary-storage blob FQDN when both are needed.
+- Use the existing environment suffix pattern and existing `environment().suffixes.storage` convention already present in the file.
+- Add the minimum required RBAC assignment allowing the Document Intelligence managed identity to read blobs from the temporary storage account.
+- Use the built-in `Storage Blob Data Reader` role only, unless the existing code clearly proves that Document Intelligence must write or delete blobs directly. Do not grant Contributor, Owner, account-key access, or broader permissions.
+- Reuse an existing role-definition ID from the repository when available. Add the built-in `Storage Blob Data Reader` role-definition ID to the existing RBAC role map only if it is currently missing.
+- Use the Document Intelligence managed identity’s `principalId` and `ServicePrincipal` as the principal type.
+- Create a deterministic and repository-consistent role-assignment name using the existing `guid(...)` pattern.
+- Add correct dependencies only where Bicep requires them. Do not add deployment scripts, finalization steps, manual principal-ID updates, or unrelated role-assignment mechanisms.
+- Preserve all existing private networking, firewall, trusted-service, private-endpoint, DNS, encryption, managed-identity, and security-team-approved configurations.
+- Do not enable public network access.
+- Do not introduce storage keys, connection strings, shared-access signatures, secrets, or hard-coded resource names.
+- Do not modify the DU input storage account, DU output storage account, unrelated modules, application settings, pipelines, source code, variable files, or any file other than `app.bicep`.
+- Do not rename existing parameters, variables, resources, modules, outputs, containers, or application-setting keys.
+- Do not remove or replace existing security rules merely to match the POC.
+- Do not refactor or reformat unrelated sections of the file.
+- Do not make speculative improvements outside this ticket.
+
+Important validation before editing:
+
+Trace which storage-account blob URLs are included in the existing Document Intelligence outbound configuration. If Document Intelligence still directly accesses the dedicated input account or another approved storage account, retain that FQDN and add the temporary-storage FQDN instead of replacing it.
+
+Also verify whether the temporary storage account already contains any of the required network or RBAC configuration. Do not create duplicate resource-access rules, duplicate role mappings, duplicate role assignments, or duplicate FQDN entries.
+
+Expected implementation pattern:
+
+- The temporary storage account remains a separate resource.
+- Its network ACLs explicitly trust the existing Document Intelligence resource through `resourceAccessRules`, where required.
+- The Document Intelligence allowed outbound FQDN list includes the temporary storage account’s blob endpoint while preserving any other necessary endpoints.
+- The Document Intelligence managed identity receives only `Storage Blob Data Reader` on the temporary storage account.
+- Existing input and output account responsibilities remain unchanged.
+
+After making the change, provide:
+
+1. A concise summary of exactly what changed in `app.bicep`.
+2. The exact sections and resource names modified.
+3. The reason each change is required.
+4. Confirmation that input and output storage wiring was not changed.
+5. Confirmation that no public access, secrets, storage keys, or broader RBAC permissions were introduced.
+6. Confirmation that no other file was modified.
+7. Any unresolved uncertainty where the current code does not prove whether Document Intelligence directly accesses the temporary account.
+
+If the existing code contradicts this architecture, or if the correct Document Intelligence identity, temporary-storage resource, role map, or network ACL structure cannot be identified confidently, stop and explain the conflict instead of guessing or making changes.
