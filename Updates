@@ -1,0 +1,7 @@
+1. Event Hub Integration
+
+* Completed the Event Hub integration and merged the changes into the main branch. The implementation is complete, and the remaining work is to validate it through end-to-end testing in Dev and UAT once the deployment is completed. After successful validation, I’ll share the results with Rahul and close the activity.
+
+2. Storage Account Implementation
+
+* Currently working on the storage account implementation. The code logic has been completed, and I’m reviewing it with Shahawaf to ensure everything is aligned with the requirements. Once the review is complete, I’ll proceed with deployment and testing.
