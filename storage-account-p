@@ -1145,3 +1145,231 @@ After making the change, provide:
 7. Any unresolved uncertainty where the current code does not prove whether Document Intelligence directly accesses the temporary account.
 
 If the existing code contradicts this architecture, or if the correct Document Intelligence identity, temporary-storage resource, role map, or network ACL structure cannot be identified confidently, stop and explain the conflict instead of guessing or making changes.
+
+
+
+Review the active PR comments related to the Event Hub implementation and make only the required code changes described below.
+
+Do not blindly implement every reviewer suggestion. Do not make unrelated refactors. Do not change Event Hub payloads, publishing locations, pre-decision logic, post-HITL logic, storage accounts, Cosmos DB, role assignments, Document Intelligence, pipeline definitions, or application business logic.
+
+First inspect the current implementation, all Event Hub call sites, Bicep module wiring, package configuration, tests, and existing Key Vault patterns.
+
+==================================================
+1. MAKE THE EVENT HUB CONNECTION STRING REQUIRED
+==================================================
+
+Inspect:
+
+- infra/templates/app.bicep
+- infra/templates/web-app.bicep
+- parent Bicep templates that call these modules
+- pipelines/deploy.steps.yaml or the actual deployment YAML
+- variables files used by the deployment
+
+For the Event Hub connection-string parameter, remove the empty-string default.
+
+Change this:
+
+@secure()
+param eventhubConnectionString string = ''
+
+to:
+
+@secure()
+param eventhubConnectionString string
+
+Apply this to both the Function App and DU Web App templates where applicable.
+
+Before making it mandatory, verify that every parent module and deployment pipeline passes the value correctly.
+
+The deployment must fail clearly when the connection string is missing, blank, whitespace, or still an unresolved Azure DevOps placeholder.
+
+Never print the connection-string value in logs.
+
+Do not rename the existing variable unless required by the current repository naming convention.
+
+==================================================
+2. KEEP EVENT HUB NAME CONDITIONALLY OPTIONAL
+==================================================
+
+Do not automatically remove the default from eventhubName.
+
+Keep its behaviour similar to:
+
+@description('Optional Event Hub name when the connection string does not contain EntityPath')
+param eventhubName string = ''
+
+Reason:
+
+- An Event Hub-specific connection string may already contain EntityPath.
+- When EntityPath is present, a separate Event Hub name is not required by the Azure SDK.
+- When EntityPath is absent, EVENT_HUB_NAME must be supplied.
+
+Implement or verify runtime validation in both sync and async publishers:
+
+- connection string missing or blank: raise EventHubConfigurationError
+- connection string contains EntityPath: Event Hub name may be blank
+- connection string does not contain EntityPath and Event Hub name is blank: raise EventHubConfigurationError
+- never expose the connection string or secret in an error message
+
+Do not remove EVENT_HUB_NAME completely because the implementation should continue supporting namespace-level connection strings.
+
+==================================================
+3. KEY VAULT SECRET HANDLING
+==================================================
+
+Inspect the existing Key Vault integration pattern, especially the current implementation used for secrets such as sharepointClientSecretKV.
+
+If EVENT_HUB_CONNECTION_STRING is currently passed directly into an App Setting rather than consumed through a Key Vault reference:
+
+- store the Event Hub connection string as a secret in the existing Key Vault
+- reuse the current Key Vault resource
+- do not create a second Key Vault
+- use the repository’s existing secret-resource and App Service Key Vault-reference patterns
+- configure both the Function App and DU Web App that publish events
+- keep EVENT_HUB_NAME as a normal non-secret setting
+- preserve the existing managed-identity and Key Vault access mechanism
+
+If the current implementation already creates the secret and uses a valid Key Vault reference, do not duplicate it. Report that no additional change was necessary.
+
+Do not add secrets directly into variables YAML files.
+
+==================================================
+4. MOVE EVENT HUB PACKAGE UNDER COMMON/AZURE
+==================================================
+
+Move the package:
+
+src/common/eventhub
+
+to:
+
+src/common/azure/eventhub
+
+Update all references, including:
+
+- Function App imports
+- DU Web App imports
+- pipeline_output_service.py
+- unit tests
+- __init__.py exports
+- common/azure/__init__.py
+- pyproject.toml
+- package/build configuration
+
+Expected import style should follow the existing repository convention, for example:
+
+from common.azure.eventhub import (
+    EventHubPublisher,
+    AsyncEventHubPublisher,
+    EventHubConfigurationError,
+)
+
+Do not simply delete the pyproject.toml package entry.
+
+Update it according to how packages are discovered after the move and verify that common.azure.eventhub is included in the produced package or wheel.
+
+Preserve the existing public class names and behaviour.
+
+==================================================
+5. KEEP BOTH SYNC AND ASYNC PUBLISHERS
+==================================================
+
+Do not remove either of these:
+
+- EventHubPublisher
+- AsyncEventHubPublisher
+
+Verify their actual call sites.
+
+The current expected design is:
+
+- the synchronous publisher is used by the Azure Function execution path
+- the asynchronous publisher is used by the asynchronous DU API or pipeline output service
+
+Do not merge the two classes or convert an async caller into a sync caller.
+
+Shared internal validation or serialization helpers are acceptable only when they do not change public behaviour.
+
+==================================================
+6. DO NOT DIRECTLY CONVERT _create_producer TO A CLASSMETHOD
+==================================================
+
+Do not mechanically add @classmethod to the current _create_producer methods.
+
+Inspect whether the methods use instance state such as:
+
+- self._connection_string_env
+- self._event_hub_name_env
+- instance-specific configuration
+- injected configuration used by tests
+
+If they use instance state, keep them as instance methods.
+
+A classmethod receives cls instead of self, so a direct conversion would be incorrect unless the construction API is redesigned.
+
+Do not add a new factory method unless it is necessary under an existing repository design pattern.
+
+If no code change is needed, mention in the final report that _create_producer remains an instance method because it depends on instance configuration.
+
+==================================================
+7. ADD OR COMPLETE TEST COVERAGE
+==================================================
+
+Keep the existing synchronous publisher tests and add equivalent asynchronous tests if async tests are currently missing.
+
+Mock Azure Event Hub SDK clients. Do not connect to a real Event Hub.
+
+Cover:
+
+- sync publisher success
+- async publisher success
+- missing connection string
+- blank connection string
+- whitespace-only connection string
+- connection string containing EntityPath without EVENT_HUB_NAME
+- namespace-level connection string without EntityPath and without EVENT_HUB_NAME
+- namespace-level connection string with a valid EVENT_HUB_NAME
+- payload JSON serialization
+- Azure SDK send exceptions according to the existing error-handling design
+- custom environment-variable names if the constructor currently supports them
+
+Do not change payload content to make tests pass.
+
+==================================================
+8. FUNCTION PACKAGE AND DU API BUILD
+==================================================
+
+Inspect the comment requesting evidence that the DU API was built, deployed, and working.
+
+This comment does not require adding screenshots to source control.
+
+Only ensure that the code/package changes do not break:
+
+- Function App packaging
+- DU API Web App packaging
+- common package creation
+- imports after moving the Event Hub package
+
+Run the available unit tests, linting, type checks, and package/build commands.
+
+Do not change unrelated lines in function-package.yaml merely to satisfy a screenshot request.
+
+==================================================
+9. REQUIRED FINAL REPORT
+==================================================
+
+After completing the changes, provide:
+
+1. Exact files changed.
+2. Change made in each file.
+3. Which PR comments were resolved through code.
+4. Which comments require a written reply instead of a code change.
+5. All tests and build commands executed.
+6. Results of each command.
+7. Confirmation that both sync and async publisher call sites still work.
+8. Confirmation that the Event Hub payload and publishing locations were not changed.
+9. Confirmation that the Event Hub connection string is never printed.
+10. Any deployment variable that is still missing in any environment.
+
+Do not commit, push, resolve PR comments, or modify screenshots automatically. Stop after making the code changes and reporting the results.
