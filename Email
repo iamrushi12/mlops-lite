@@ -97,3 +97,27 @@ Please be assured that this was completely unintentional. I prioritized getting 
 Regards,
 Rushikesh Yadav
 
+
+
+
+Here’s a professional email you can send:
+
+Subject: DEV Validation Completed – Request to Configure OneAccount for Remaining Environments
+
+Hi Team,
+
+We have successfully validated the OneAccount OIDC integration in the DEV environment, and the login flow is working as expected.
+
+As the DEV validation is complete, we would like to proceed with configuring the remaining environments (UAT, STG, and PROD). Please register the respective redirect URIs for these environments in OneAccount, configure them with the PKCE grant type, and whitelist the redirect URIs in CORS.
+
+Please find the required environment details and redirect URIs below:
+
+(Insert the UAT/STG/PROD redirect URIs and other required details here.)
+
+Once the configuration is completed, please share the corresponding Client IDs for each environment so that we can update our application configuration and continue with validation.
+
+Please let us know if you need any additional information.
+
+Thanks & Regards,
+Rushi Yadav
+
