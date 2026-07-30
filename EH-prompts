@@ -723,3 +723,301 @@ Requirements:
 
 Important:
 Do not refactor the whole function or introduce new abstractions unless absolutely required. Keep the patch small, backward-compatible, and limited to resolving and diagnosing the response parsing failure.
+
+
+
+
+eh sending logic :-
+
+I need you to implement one very specific change in this repository related to the Event Hub payload preparation.
+
+Please first inspect the current repository and understand the existing flow before changing anything.
+
+Context
+
+The current Event Hub integration is already implemented and working. We already have logic that publishes payloads to Event Hub before HITL and after HITL.
+
+The new requirement is not to change the Event Hub connection or infrastructure. The requirement is only to transform the payload before sending it to Event Hub so that it matches the agreed Data Lake payload structure.
+
+The expected Data Lake structure uses wrappers similar to:
+
+{
+  "extractions": [
+    {
+      "type": "json",
+      "data": {
+        "...existing extracted fields...": "...",
+        "metadata": {
+          "schema_version": "1.1",
+          "use_case": "Fleet",
+          "submission_name": "...",
+          "source_file_name": "..."
+        }
+      }
+    }
+  ]
+}
+
+Important: use the exact target structure and field names already available in the repository, existing sample JSON files, current branch, tests, shared schema, or existing code. Do not blindly use the example above if the repository contains a more accurate contract.
+
+The requirement applies to both pre-HITL and post-HITL payloads.
+
+The Event Hub publishing mechanism must remain unchanged. Only the object passed to the existing publisher should be prepared in the correct Data Lake format.
+
+Required behaviour
+
+1. Locate the current pre-HITL Event Hub publishing flow.
+
+2. Locate the current post-HITL Event Hub publishing flow.
+
+3. Locate the existing Event Hub publisher/client method.
+
+4. Locate the existing combined extraction or final pipeline output that is currently passed to Event Hub.
+
+5. Locate any existing sample payload, schema, test fixture, or template containing:
+   - extractions
+   - data
+   - metadata
+   - schema_version
+   - use_case
+   - submission_name
+   - source_file_name
+
+6. Identify where submission_name and source_file_name are currently available.
+   Possible existing sources may include:
+   - email subject
+   - original source attachment name
+   - input_files
+   - extras.metadata
+   - Cosmos DB document
+   - pipeline context
+   - orchestration message
+   - combined JSON output
+
+Do not invent a new source for these values. Reuse the existing values already available in the execution context.
+
+Implementation required
+
+Create a small and focused Python mapping/filtering function or helper that prepares the outgoing Data Lake payload.
+
+The helper should:
+
+- Accept the existing pre-HITL or post-HITL source payload and the required contextual values.
+- Create a new dictionary rather than mutating the original payload.
+- Preserve the required extraction data.
+- Wrap the payload according to the agreed target structure.
+- Add metadata in the correct location.
+- Populate submission_name and source_file_name from existing runtime data.
+- Preserve schema_version and use_case from existing configuration, metadata, or schema where available.
+- Include only fields allowed by the agreed target payload.
+- Exclude unnecessary fields that are not part of the Data Lake contract.
+- Exclude sensitive or irrelevant additional data, such as patient information, if present and not part of the target schema.
+- Avoid copying the entire raw pipeline output into the outgoing message.
+- Return a JSON-serializable Python dictionary.
+
+Filtering approach
+
+Use allow-list filtering.
+
+This means the outgoing payload should be created explicitly from the fields required by the target schema.
+
+Do not implement filtering by copying the full payload and removing only a few known fields with pop or del.
+
+The logic should behave like:
+
+source pipeline or extraction output
+    -> extract required data
+    -> build target payload
+    -> add metadata
+    -> exclude everything else
+    -> send through existing Event Hub publisher
+
+Pre-HITL requirement
+
+Keep the existing pre-HITL business flow unchanged.
+
+Only ensure that the object sent to Event Hub is prepared in the agreed Data Lake schema.
+
+Do not change:
+- when the pre-HITL event is triggered
+- the decision-engine flow
+- pipeline execution
+- storage logic
+- retry logic
+- error handling
+- Event Hub destination
+
+Post-HITL requirement
+
+Keep the existing post-HITL business flow unchanged.
+
+Use the final post-HITL output already produced by the current application and transform it into the same agreed Data Lake structure before publishing.
+
+Do not add a new service call or manual retrieval step if the final output is already available in the existing execution flow.
+
+Event Hub constraints
+
+Do not change any of the following:
+
+- Event Hub namespace
+- Event Hub name or entity path
+- connection string
+- managed identity
+- authentication
+- Azure SDK setup
+- retry settings
+- transport type
+- network settings
+- private endpoints
+- environment variables
+- variable groups
+- Bicep files
+- YAML deployment files
+- App Service resources
+- Function App resources
+- storage accounts
+- Cosmos DB
+- pipeline definitions
+- unrelated business logic
+
+Do not add a new Azure resource.
+
+Do not introduce a new SDK unless the repository already uses it and it is genuinely required.
+
+Continue using the existing Azure Event Hub SDK and existing publisher method.
+
+Code-structure constraints
+
+- Keep the change minimal.
+- Follow the existing repository structure.
+- Follow the current naming conventions.
+- Follow the existing dependency-injection pattern.
+- Follow the current logging and exception-handling pattern.
+- Do not perform a broad refactor.
+- Do not rename existing public methods or classes unnecessarily.
+- Do not move unrelated files.
+- Do not modify unrelated tests.
+- Do not change formatting across whole files.
+- Do not alter any existing behaviour outside payload construction.
+- Avoid adding dependencies if normal Python dictionary handling is sufficient.
+
+Preferred implementation
+
+Prefer one focused helper, for example:
+
+build_event_hub_payload(...)
+map_data_lake_payload(...)
+prepare_data_lake_event(...)
+transform_event_hub_payload(...)
+
+Choose a name that fits the existing repository conventions.
+
+Use existing models or helpers if the repository already has a suitable place for this logic.
+
+Do not create duplicate transformation logic for pre-HITL and post-HITL if both can safely use the same mapper.
+
+If their input structures are different, keep one common target builder and add only small source-specific extraction helpers.
+
+Metadata expectations
+
+The resulting data should contain metadata in the agreed place inside data.
+
+The metadata is expected to include, based on the shared requirement:
+
+- schema_version
+- use_case
+- submission_name
+- source_file_name
+
+Use the exact casing and placement from the repository schema or sample payload.
+
+If metadata already exists under extras.metadata or another existing location, reuse its valid values rather than creating conflicting duplicates.
+
+If submission_name or source_file_name cannot be found, do not invent a fallback silently.
+
+Instead:
+- use the repository's existing optional-field behaviour if defined, or
+- raise/log a clear validation error according to the existing error-handling convention.
+
+Do not log sensitive payload contents.
+
+Testing requirements
+
+Add focused unit tests covering:
+
+1. A valid pre-HITL payload is converted into the expected Data Lake structure.
+
+2. A valid post-HITL payload is converted into the same target structure.
+
+3. metadata is placed inside data at the expected location.
+
+4. submission_name is populated from the correct existing source.
+
+5. source_file_name is populated from the correct existing source.
+
+6. required extraction fields remain unchanged.
+
+7. unrelated extra fields are not included.
+
+8. patient information or other unapproved fields are excluded when present.
+
+9. unexpected future fields are excluded automatically.
+
+10. the original input payload is not mutated.
+
+11. the existing Event Hub publisher is called with the transformed payload.
+
+12. the raw source payload is not sent to Event Hub.
+
+13. existing trigger conditions for pre-HITL and post-HITL remain unchanged.
+
+14. missing required metadata follows the repository's existing validation/error behaviour.
+
+Before modifying code
+
+First provide a concise analysis containing:
+
+- current pre-HITL publishing file and method
+- current post-HITL publishing file and method
+- existing Event Hub publisher file and method
+- source of extraction data
+- source of submission_name
+- source of source_file_name
+- existing target schema or sample payload found
+- minimal files that need to change
+- proposed implementation approach
+
+Do not make changes until this repository analysis is complete.
+
+After the analysis, implement the minimal change.
+
+After implementation
+
+Provide:
+
+1. A list of modified files.
+
+2. A short explanation of each modification.
+
+3. The exact pre-HITL flow after the change.
+
+4. The exact post-HITL flow after the change.
+
+5. Confirmation that no infrastructure, Event Hub configuration, storage, deployment, or unrelated application logic was changed.
+
+6. Any unresolved question where the repository does not provide enough information.
+
+Critical rule
+
+Do not guess the schema, metadata source, field names, or payload location.
+
+If the exact expected structure cannot be confirmed from the repository, samples, tests, or current branch, stop before implementing uncertain fields and clearly explain what information is missing.
+
+The final scope must remain:
+
+existing source payload
+    -> Python mapping and allow-list filtering
+    -> agreed Data Lake JSON structure
+    -> existing Event Hub publisher
+
+Nothing else should be changed.
