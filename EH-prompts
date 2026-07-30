@@ -1021,3 +1021,54 @@ existing source payload
     -> existing Event Hub publisher
 
 Nothing else should be changed.
+
+
+
+
+revert changes point 
+
+
+
+Revert the current broad implementation and simplify the change.
+
+This requirement does not need a new payload_mapper.py abstraction, custom validation exception, generic metadata discovery, deep-copy logic, or changes across seven files.
+
+Implement only the minimum payload transformation directly near the existing Event Hub publish calls, or use one very small helper in an existing utility module if both pre-HITL and post-HITL need the same logic.
+
+Required logic only:
+
+1. Take the existing JSON payload.
+2. Select only the fields required by the agreed Data Lake payload.
+3. Add the required metadata fields from values already available in the current function.
+4. Build the required:
+   {
+     "extractions": [
+       {
+         "type": "json",
+         "data": {
+           ...
+         }
+       }
+     ]
+   }
+5. Pass that transformed dictionary to the existing Event Hub publisher.
+6. Keep all Event Hub client, connection, retry, infrastructure, storage, and pipeline logic unchanged.
+
+Do not:
+- create a new generic mapper framework;
+- scan multiple possible metadata locations;
+- add custom exception classes;
+- add deep-copy or coercion helpers;
+- use document IDs as source filenames;
+- refactor unrelated code;
+- change more files than necessary.
+
+Keep the production change ideally within 30–80 lines total across the existing sender locations.
+
+Add only focused tests proving:
+- the required fields are present;
+- metadata is in the correct location;
+- unwanted fields such as patient_info are absent;
+- the existing publisher receives the filtered payload.
+
+Before changing anything, show the exact files and lines you will modify. The expected scope is only the existing pre-HITL and post-HITL sender logic plus minimal tests.
