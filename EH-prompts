@@ -1072,3 +1072,62 @@ Add only focused tests proving:
 - the existing publisher receives the filtered payload.
 
 Before changing anything, show the exact files and lines you will modify. The expected scope is only the existing pre-HITL and post-HITL sender logic plus minimal tests.
+
+
+
+
+
+Review only the current Event Hub payload-filtering changes in this branch. Do not modify any code yet.
+
+The requirement is:
+
+1. Keep the existing Event Hub publisher, authentication, configuration, infrastructure, identifiers, stages, and processing flow unchanged.
+2. At both existing publish points:
+   - pre-decision/pre-HITL in src/functions/function_app.py
+   - post-HITL in pipeline_output_service.py
+3. Send the payload in this structure:
+
+{
+  "extractions": [
+    {
+      "type": "json",
+      "data": {
+        "...existing required extraction fields...",
+        "metadata": {
+          "schema_version": "...",
+          "use_case": "...",
+          "submission_name": "...",
+          "source_files": [...]
+        }
+      }
+    }
+  ]
+}
+
+4. Remove only the unwanted fields `extras` and `patient_info`.
+5. Do not introduce new mapper/helper frameworks, new exceptions, infrastructure changes, or unrelated refactoring.
+
+Please inspect the real repository flow and report:
+
+- Whether both transformations use the correct source payload.
+- Whether any valid extraction data could be lost.
+- Whether metadata exists at both publish points and whether any value can become null or incorrect.
+- Whether pre-HITL and post-HITL metadata are built consistently.
+- Whether `extractions` can be empty, missing, contain multiple items, or have non-dictionary `data`, and what the current code would do.
+- Whether removing `extras` and `patient_info` only at the top level satisfies the actual payload structure.
+- Whether the post-HITL `pipeline_id` identifier can be missing and whether that is acceptable.
+- Whether an Event Hub publishing failure still allows the main processing and persistence flow to continue.
+- Whether the changed unit tests correctly test the actual publisher arguments and important failure cases.
+- Whether any deleted file is still imported or referenced anywhere.
+- Whether there are syntax, type-checking, linting, import, or runtime issues in the changed files.
+
+Run the smallest relevant tests and static checks available in this repository.
+
+Do not make changes automatically. First give me:
+
+1. PASS or FAIL for the implementation.
+2. Exact issues found, with file names and line numbers.
+3. Whether each issue is mandatory to fix before Dev testing or only an optional improvement.
+4. The smallest safe code change required for each mandatory issue.
+5. Tests/checks executed and their results.
+6. A final recommendation: keep the changes, make specific minimal fixes, or rollback.
