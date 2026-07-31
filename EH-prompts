@@ -1131,3 +1131,35 @@ Do not make changes automatically. First give me:
 4. The smallest safe code change required for each mandatory issue.
 5. Tests/checks executed and their results.
 6. A final recommendation: keep the changes, make specific minimal fixes, or rollback.
+
+
+
+
+I am attaching the final sample Event Hub JSON payload approved by Rahul.
+
+First, inspect the sample and compare it with the actual pre-HITL and post-HITL source payloads in this repository.
+
+Important:
+- Do not create logic based on JSON line numbers.
+- Do not hardcode every extraction field from the sample.
+- Extraction fields can vary dynamically between documents.
+- Preserve all valid existing extraction fields automatically.
+- Remove only the fields that are not present in Rahul's approved contract, especially `extras` and `patient_info`.
+- Build the exact required outer structure and metadata location shown in the approved sample.
+- Do not introduce a new mapper framework, helper class, custom exception, infrastructure change, or unrelated refactoring.
+- Do not modify code yet.
+
+Please report:
+
+1. The exact JSON path of every mandatory field in Rahul's approved payload.
+2. Which fields are fixed contract fields and which fields are dynamic extraction data.
+3. Whether the sample supports one extraction or multiple extraction items.
+4. Where each required value is available in the current pre-HITL code.
+5. Where each required value is available in the current post-HITL code.
+6. Any required value that is unavailable or can become null.
+7. Whether the current minimal filtering logic produces the exact approved structure.
+8. The smallest changes required, with file names and line numbers.
+9. A sample final output generated from the existing unit-test input.
+10. PASS or FAIL for pre-HITL and post-HITL separately.
+
+Do not assume that the number of lines or extraction fields is fixed. Review the JSON by keys, nesting and data types.
