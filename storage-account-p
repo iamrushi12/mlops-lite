@@ -1373,3 +1373,26 @@ After completing the changes, provide:
 10. Any deployment variable that is still missing in any environment.
 
 Do not commit, push, resolve PR comments, or modify screenshots automatically. Stop after making the code changes and reporting the results.
+
+
+
+Please review my Bicep changes before deployment.
+
+Goal:
+- Keep existing/main storage account unchanged for output.
+- Create only two new storage accounts: input storage and DA/temp storage.
+- Create temporary app services by prefixing names with `temp-`.
+- Do not update existing shared Function App, Web/API App, or Puller/Orchestrator App settings.
+
+Please verify:
+1. Storage account names are valid Azure names: lowercase, no hyphens, max 24 chars.
+2. `web-app.bicep` is not recreating storage accounts; it should only reference/pass values from `app.bicep`.
+3. Temporary app services are using unique names and will not overwrite existing apps.
+4. Temporary apps point to:
+   - new input storage for input
+   - new DA/temp storage for DI/intermediate artifacts
+   - existing main storage for output
+5. RBAC/access is added for temp app identities to all required storage accounts.
+6. `what-if` should create only temp apps + two new storage accounts and must not modify existing shared app services.
+
+Tell me clearly if it is safe to deploy or what exact changes are required first.
