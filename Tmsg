@@ -8,3 +8,14 @@ This dependency has been blocking our work for some time, so I wanted to check w
 
 
 Hi [Name], hope you’re doing well. We need to provide a few GBS users with temporary access to our UAT environment for testing. However, we’re unable to add them to the Azure Entra ID group because they don’t appear in our tenant. As suggested by Siddharth, they first need access to the PPP UK/Health tenant. Could you please let us know the service catalogue/request process or help us raise the required request? The access is needed for 1 week only, after which it can be removed. Thank you!
+
+
+
+> Hi Joseph,
+> We are still facing the same issue on the dashboard where it shows "No modules for this user".
+> We have followed all the steps mentioned in the documentation and checked everything on our end, but the issue persists. Currently, we are seeing a Cosmos DB entity extraction error—it seems the session is getting closed prematurely before the entity extraction completes, so it fails to find the required session/value in Cosmos.
+> I have attached the zip file for the du-api folder (from the UAT1account-fix-version2 branch). We made updates to two files in this build:
+>  * The Entra ID username extraction logic.
+>  * The Entra ID user list authentication and authorization logic.
+> Could you please review these changes and test them in Copilot to help us resolve this?
+>
