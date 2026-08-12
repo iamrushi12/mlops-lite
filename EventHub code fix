@@ -131,3 +131,12 @@ source_files = (
 
 if isinstance(source_files, str):
     source_files = [source_files]
+
+
+
+source_files = (
+    extras_metadata.get("source_files_names")
+    or extras_metadata.get("source_filenames")
+    or extras_metadata.get("source_files")
+    or []
+)
