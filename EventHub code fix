@@ -162,3 +162,35 @@ if isinstance(metadata, dict):
     )
 else:
     source_files = []
+
+
+
+
+
+pipeline_id = pipeline_document.get("id")
+
+process = process_repository.get_by_pipeline_id(
+    pipeline_document["id"]
+)
+
+if not process:
+    logging.warning(
+        f"No submission found for "
+        f"pipeline {pipeline_document['id']}"
+    )
+    continue
+
+logging.info(
+    f"Pipeline ID: {pipeline_id} completed post-HITL - publishing final output to Event Hub"
+)
+
+try:
+    await publish_post_hitl_to_eventhub(
+        pipeline_id,
+        process.submission_name,
+    )
+except Exception:
+    logging.exception(
+        "Event Hub publish failed for post-HITL pipeline %s",
+        pipeline_document["id"],
+    )
