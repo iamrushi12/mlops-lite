@@ -1,0 +1,80 @@
+def _build_post_hitl_payload(output_content: dict) -> dict:
+    first_extraction = ((output_content or {}).get("extractions") or [{}])[0]
+
+    if not isinstance(first_extraction, dict):
+        first_extraction = {}
+
+    payload_data = _extract_payload_data(output_content)
+
+    if not isinstance(payload_data, dict):
+        payload_data = {}
+
+    # Metadata may exist in different locations depending on
+    # pre/post-HITL payload structure.
+    extraction_extras = first_extraction.get("extras", {})
+    extraction_extras_metadata = (
+        extraction_extras.get("metadata", {})
+        if isinstance(extraction_extras, dict)
+        else {}
+    )
+
+    data_extras = payload_data.get("extras", {})
+    data_extras_metadata = (
+        data_extras.get("metadata", {})
+        if isinstance(data_extras, dict)
+        else {}
+    )
+
+    data_metadata = payload_data.get("metadata", {})
+    if not isinstance(data_metadata, dict):
+        data_metadata = {}
+
+    # Prefer the contract location, but support the other payload layouts.
+    metadata = (
+        extraction_extras_metadata
+        or data_extras_metadata
+        or data_metadata
+        or {}
+    )
+
+    filtered_data = _flatten_extraction_fields(
+        {
+            key: value
+            for key, value in payload_data.items()
+            if key not in ("extras", "patient_info", "metadata")
+        }
+    )
+
+    # Support both field names.
+    source_files = (
+        metadata.get("source_files")
+        or metadata.get("source_filenames")
+        or first_extraction.get("source_files")
+        or first_extraction.get("source_filenames")
+        or payload_data.get("source_files")
+        or payload_data.get("source_filenames")
+        or []
+    )
+
+    # Keep Event Hub contract consistently as an array.
+    if isinstance(source_files, str):
+        source_files = [source_files]
+
+    extraction_metadata = {
+        "schema_version": metadata.get("schema_version") or "1.1",
+        "use_case": metadata.get("use_case") or "Fleet",
+        "submission_name": metadata.get("submission_name") or "",
+        "source_files": source_files,
+    }
+
+    return {
+        "extractions": [
+            {
+                "type": "json",
+                "data": filtered_data,
+                "extras": {
+                    "metadata": extraction_metadata,
+                },
+            }
+        ]
+    }
