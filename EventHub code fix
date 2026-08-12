@@ -151,3 +151,14 @@ source_files = (
     if isinstance(metadata, dict)
     else []
 )
+
+
+if isinstance(metadata, dict):
+    source_files = (
+        metadata.get("source_files_names")
+        or metadata.get("source_filenames")
+        or metadata.get("source_files")
+        or []
+    )
+else:
+    source_files = []
