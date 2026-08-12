@@ -140,3 +140,14 @@ source_files = (
     or extras_metadata.get("source_files")
     or []
 )
+
+
+
+source_files = (
+    metadata.get("source_files_names")
+    or metadata.get("source_filenames")
+    or metadata.get("source_files")
+    or []
+    if isinstance(metadata, dict)
+    else []
+)
