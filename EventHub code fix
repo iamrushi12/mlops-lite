@@ -385,3 +385,18 @@ async def publish_post_hitl_to_eventhub(
         f"Published post-HITL payload to Event Hub for pipeline {pipeline_id}"
     )
 
+--------
+
+extraction_extras_metadata = (
+    extraction.get("extras", {}).get("metadata", {})
+    if isinstance(extraction.get("extras"), dict)
+    else {}
+)
+
+data_extras_metadata = (
+    extraction_data.get("extras", {}).get("metadata", {})
+    if isinstance(extraction_data.get("extras"), dict)
+    else {}
+)
+
+extras_metadata = extraction_extras_metadata or data_extras_metadata
