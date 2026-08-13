@@ -474,3 +474,22 @@ def _build_post_hitl_payload(output_content: dict, submission_name: str = "") ->
             }
         ]
     }
+
+
+
+
+source_files = (
+    extraction_extras_metadata.get("source_file_names")
+    or extraction_extras_metadata.get("source_file_name")
+    or extraction_extras_metadata.get("source_filenames")
+    or extraction_extras_metadata.get("source_files")
+    or data_extras_metadata.get("source_file_names")
+    or data_extras_metadata.get("source_file_name")
+    or data_extras_metadata.get("source_filenames")
+    or data_extras_metadata.get("source_files")
+    or direct_metadata.get("source_file_names")
+    or direct_metadata.get("source_file_name")
+    or direct_metadata.get("source_filenames")
+    or direct_metadata.get("source_files")
+    or []
+)
