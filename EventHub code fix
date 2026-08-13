@@ -400,3 +400,77 @@ data_extras_metadata = (
 )
 
 extras_metadata = extraction_extras_metadata or data_extras_metadata
+
+
+
+
+-----------
+
+
+def _build_post_hitl_payload(output_content: dict, submission_name: str = "") -> dict:
+    first_extraction = ((output_content or {}).get("extractions") or [{}])[0]
+
+    payload_data = _extract_payload_data(output_content)
+
+    extraction_extras_metadata = (
+        first_extraction.get("extras", {}).get("metadata", {})
+        if isinstance(first_extraction, dict)
+        and isinstance(first_extraction.get("extras"), dict)
+        else {}
+    )
+
+    data_extras_metadata = (
+        payload_data.get("extras", {}).get("metadata", {})
+        if isinstance(payload_data, dict)
+        and isinstance(payload_data.get("extras"), dict)
+        else {}
+    )
+
+    direct_metadata = (
+        payload_data.get("metadata", {})
+        if isinstance(payload_data, dict)
+        and isinstance(payload_data.get("metadata"), dict)
+        else {}
+    )
+
+    metadata = (
+        extraction_extras_metadata
+        or data_extras_metadata
+        or direct_metadata
+    )
+
+    filtered_data = {
+        key: value
+        for key, value in payload_data.items()
+        if key not in {"extras", "patient_info", "metadata"}
+    }
+
+    if isinstance(metadata, dict):
+        source_files = (
+            metadata.get("source_file_names")
+            or metadata.get("source_file_name")
+            or metadata.get("source_filenames")
+            or metadata.get("source_files")
+            or []
+        )
+    else:
+        source_files = []
+
+    extraction_metadata = {
+        "schema_version": (metadata or {}).get("schema_version") or "1.1",
+        "use_case": (metadata or {}).get("use_case") or "Fleet",
+        "submission_name": submission_name,
+        "source_file_name": source_files if source_files is not None else [],
+    }
+
+    return {
+        "extractions": [
+            {
+                "type": "json",
+                "data": {
+                    **filtered_data
+                },
+                "extras": {"metadata": extraction_metadata},
+            }
+        ]
+    }
