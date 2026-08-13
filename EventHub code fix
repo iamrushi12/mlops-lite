@@ -254,3 +254,134 @@ if pipeline_document["status"] == "COMPLETED":
             "Event Hub publish failed for post-HITL pipeline %s",
             pipeline_document["id"],
         )
+
+
+post pipeline bridge
+
+
+async def publish_post_hitl_to_eventhub(
+    pipeline_id: str,
+    submission_name: str,
+) -> None:
+    logging.info(
+        "POST-HITL DEBUG: publish function started. "
+        "pipeline_id=%s submission_name=%s",
+        pipeline_id,
+        submission_name,
+    )
+
+    logging.info(
+        f"Fetching final output for post-HITL EventHub publish: pipeline {pipeline_id}"
+    )
+
+    pipeline_data = get_pipeline_with_outputs(pipeline_id)
+
+    logging.info(
+        "POST-HITL DEBUG: pipeline data fetched. "
+        "pipeline_id=%s pipeline_data_type=%s",
+        pipeline_id,
+        type(pipeline_data).__name__,
+    )
+
+    outputs = pipeline_data.get("outputs", [])
+
+    logging.info(
+        "POST-HITL DEBUG: outputs_count=%s for pipeline_id=%s",
+        len(outputs) if isinstance(outputs, list) else "not-list",
+        pipeline_id,
+    )
+
+    if not outputs:
+        logging.warning(
+            f"No outputs found for completed pipeline {pipeline_id}"
+        )
+        return
+
+    latest_output = max(
+        outputs,
+        key=lambda o: o.get("created_at") or "",
+    )
+
+    object_name = latest_output.get("object_name")
+
+    logging.info(
+        "POST-HITL DEBUG: selected object_name=%s for pipeline_id=%s",
+        object_name,
+        pipeline_id,
+    )
+
+    if not object_name:
+        logging.warning(
+            f"No object_name in outputs for pipeline {pipeline_id}"
+        )
+        return
+
+    logging.info(
+        "POST-HITL DEBUG: fetching output content. "
+        "pipeline_id=%s object_name=%s",
+        pipeline_id,
+        object_name,
+    )
+
+    output_content = get_pipeline_output_content(object_name)
+
+    logging.info(
+        "POST-HITL DEBUG: output content fetched. "
+        "pipeline_id=%s output_content_type=%s",
+        pipeline_id,
+        type(output_content).__name__,
+    )
+
+    post_hitl_payload = _build_post_hitl_payload(
+        output_content,
+        submission_name=submission_name,
+    )
+
+    logging.info(
+        "Post-HITL Event Hub payload summary for pipeline %s: %s",
+        pipeline_id,
+        json.dumps(
+            _eventhub_payload_summary(post_hitl_payload),
+            default=str,
+        ),
+    )
+
+    logging.info(
+        "Post-HITL Event Hub payload full body for pipeline %s: %s",
+        pipeline_id,
+        json.dumps(post_hitl_payload, default=str),
+    )
+
+    serialized_payload = json.dumps(post_hitl_payload, default=str)
+
+    logging.info(
+        "POST-HITL DEBUG: payload size=%s bytes for pipeline_id=%s",
+        len(serialized_payload.encode("utf-8")),
+        pipeline_id,
+    )
+
+    logging.info(
+        "POST-HITL DEBUG: calling AsyncEventHubPublisher.publish. "
+        "pipeline_id=%s",
+        pipeline_id,
+    )
+
+    await AsyncEventHubPublisher().publish(
+        post_hitl_payload,
+        stage="post-hitl",
+        identifiers={
+            "pipeline_id": pipeline_id,
+            "object_name": object_name,
+        },
+    )
+
+    logging.info(
+        "POST-HITL DEBUG: AsyncEventHubPublisher.publish returned successfully. "
+        "pipeline_id=%s",
+        pipeline_id,
+    )
+
+    logging.info(
+        f"Published post-HITL payload to Event Hub for pipeline {pipeline_id}"
+    )
+
