@@ -194,3 +194,63 @@ except Exception:
         "Event Hub publish failed for post-HITL pipeline %s",
         pipeline_document["id"],
     )
+
+
+
+
+post hitl logging fix
+
+if pipeline_document["status"] == "COMPLETED":
+    logging.info(
+        "POST-HITL DEBUG: entered COMPLETED block. pipeline_id=%s status=%s",
+        pipeline_document.get("id"),
+        pipeline_document.get("status"),
+    )
+
+    logging.info(f"Pipeline ID: {pipeline_document['id']} is completed.")
+
+    await send_message_to_service_bus(
+        queue_name=os.environ["SEND_TO_SHAREPOINT_QUEUE_NAME"],
+        message_contents=json.dumps(pipeline_document),
+    )
+
+    logging.info(
+        f"Sent completed pipeline {pipeline_document['id']} to SharePoint queue"
+    )
+
+    pipeline_id = pipeline_document.get("id")
+
+    process = process_repository.get_by_pipeline_id(
+        pipeline_document["id"]
+    )
+
+    if not process:
+        logging.warning(
+            f"No submission found for pipeline {pipeline_document['id']}"
+        )
+        continue
+
+    logging.info(
+        "POST-HITL DEBUG: about to publish Event Hub payload. "
+        "pipeline_id=%s submission_name=%s",
+        pipeline_id,
+        process.submission_name,
+    )
+
+    try:
+        await publish_post_hitl_to_eventhub(
+            pipeline_id,
+            process.submission_name,
+        )
+
+        logging.info(
+            "POST-HITL DEBUG: publish_post_hitl_to_eventhub returned "
+            "successfully for pipeline_id=%s",
+            pipeline_id,
+        )
+
+    except Exception:
+        logging.exception(
+            "Event Hub publish failed for post-HITL pipeline %s",
+            pipeline_document["id"],
+        )
