@@ -117,3 +117,65 @@ def publish_pre_decision_to_eventhub(
             submission_id,
         )
         raise
+
+
+
+
+def send_to_eventhub(msg: func.ServiceBusMessage):
+    pipeline_id = None
+
+    try:
+        # Read the Cosmos pipeline document that was placed on Service Bus.
+        pipeline_document = json.loads(
+            msg.get_body().decode("utf-8")
+        )
+
+        pipeline_id = pipeline_document.get("id")
+
+        logging.info(
+            "SendToEventHub triggered for pipeline_id=%s",
+            pipeline_id,
+        )
+
+        # Get the combined extraction JSON object name.
+        combined_result_object_name = (
+            pipeline_document.get("values", {}).get("json_input")
+        )
+
+        if not combined_result_object_name:
+            raise ValueError(
+                "json_input not found in pipeline document "
+                f"for pipeline_id={pipeline_id}"
+            )
+
+        # Get submission/process information.
+        process = process_repository.get_by_pipeline_id(
+            pipeline_id
+        )
+
+        if not process:
+            raise ValueError(
+                f"No submission found for pipeline_id={pipeline_id}"
+            )
+
+        submission_id = process.job_id
+        submission_name = process.submission_name
+
+        logging.info(
+            "Pre-decision queue message resolved: "
+            "pipeline_id=%s, submission_id=%s, json_input=%s",
+            pipeline_id,
+            submission_id,
+            combined_result_object_name,
+        )
+
+        # DO NOT call publish_pre_decision_to_eventhub yet.
+        # First we need to retrieve the actual combined JSON.
+
+    except Exception:
+        logging.exception(
+            "Failed to process SendToEventHub message "
+            "for pipeline_id=%s",
+            pipeline_id,
+        )
+        raise
