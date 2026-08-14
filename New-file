@@ -1,0 +1,119 @@
+import logging
+
+from common.azure.eventhub.publisher import EventHubPublisher
+
+
+event_hub_publisher = EventHubPublisher()
+
+
+def publish_pre_decision_to_eventhub(
+    combined_extraction_output: dict,
+    submission_id: str,
+    submission_name: str,
+    combined_result_object_name: str,
+) -> None:
+    """
+    Build the filtered pre-decision payload and publish it
+    to Event Hub.
+    """
+
+    try:
+        # PASTE YOUR CLEAN EVENT HUB TRANSFORMATION
+        # LOGIC THAT YOU SAVED HERE.
+
+        extraction = (
+            combined_extraction_output.get("extractions")
+            or [{}]
+        )[0]
+
+        extraction_data_raw = (
+            extraction.get("data", {})
+            if isinstance(extraction, dict)
+            else {}
+        )
+
+        extraction_data = (
+            extraction_data_raw
+            if isinstance(extraction_data_raw, dict)
+            else {}
+        )
+
+        extraction_extras_metadata = (
+            extraction.get("extras", {}).get("metadata", {})
+            if isinstance(extraction.get("extras"), dict)
+            else {}
+        )
+
+        data_extras_metadata = (
+            extraction_data.get("extras", {}).get("metadata", {})
+            if isinstance(extraction_data.get("extras"), dict)
+            else {}
+        )
+
+        extras_metadata = (
+            extraction_extras_metadata
+            or data_extras_metadata
+        )
+
+        source_files = (
+            extras_metadata.get("source_file_names")
+            or extras_metadata.get("source_file_name")
+            or extras_metadata.get("source_filenames")
+            or extras_metadata.get("source_files")
+            or []
+        )
+
+        filtered_data = {
+            key: value
+            for key, value in extraction_data.items()
+            if key not in (
+                "extras",
+                "patient_info",
+                "metadata",
+            )
+        }
+
+        extraction_metadata = {
+            "schema_version": "1.1",
+            "use_case": "Fleet",
+            "submission_name": submission_name,
+            "source_file_name": source_files,
+        }
+
+        data_lake_payload = {
+            "extractions": [
+                {
+                    "type": "json",
+                    "data": {
+                        **filtered_data,
+                        "extras": {
+                            "metadata": extraction_metadata,
+                        },
+                    },
+                }
+            ]
+        }
+
+        event_hub_publisher.publish(
+            data_lake_payload,
+            stage="pre_decision",
+            identifiers={
+                "submissionId": submission_id,
+                "combined_output_document_id":
+                    combined_result_object_name,
+            },
+        )
+
+        logging.info(
+            "Pre-decision Event Hub payload published "
+            "for submissionId=%s",
+            submission_id,
+        )
+
+    except Exception:
+        logging.exception(
+            "Event Hub publish failed at pre-decision "
+            "stage for submissionId=%s",
+            submission_id,
+        )
+        raise
