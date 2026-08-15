@@ -20,3 +20,38 @@ if not combined_result_object_name:
         "combined_result_object_name missing from Service Bus message "
         f"for pipeline_id={pipeline_id}"
     )
+
+
+
+
+
+# Log Service Bus message structure
+logging.info(
+    "Service Bus message keys: %s",
+    list(pipeline_document.keys()),
+)
+
+pipeline_id = (
+    pipeline_document.get("pipeline_id")
+    or pipeline_document.get("id")
+)
+
+if not pipeline_id:
+    raise ValueError(
+        "Pipeline ID missing from Service Bus message"
+    )
+
+logging.info(
+    "Processing pre-decision Event Hub message for pipeline_id=%s",
+    pipeline_id,
+)
+
+combined_result_object_name = pipeline_document.get(
+    "combined_result_object_name"
+)
+
+if not combined_result_object_name:
+    raise ValueError(
+        "combined_result_object_name missing from Service Bus message "
+        f"for pipeline_id={pipeline_id}"
+    )
