@@ -55,3 +55,33 @@ if not combined_result_object_name:
         "combined_result_object_name missing from Service Bus message "
         f"for pipeline_id={pipeline_id}"
     )
+
+
+
+
+
+except Exception as e:
+    logging.exception(
+        "Failed to process submission %s (%s)",
+        submission_id,
+        submission_name,
+    )
+
+    return func.HttpResponse(
+        json.dumps(
+            {
+                "success": False,
+                "submissionId": submission_id,
+                "submissionName": submission_name,
+                "error": str(e),
+            }
+        ),
+        status_code=500,
+        mimetype="application/json",
+    )
+
+return func.HttpResponse(
+    json.dumps(response_payload),
+    status_code=200,
+    mimetype="application/json",
+)
