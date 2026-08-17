@@ -144,3 +144,23 @@ eventhub_queue_payload = {
 ------///-
 
 
+
+submission_id = process.job_id
+submission_name = process.submission_name
+combined_result_object_name = (
+    f"{submission_id}_combined_output.json"
+)
+
+eventhub_queue_payload = {
+    "event_type": "pre_decision",
+    "pipeline_execution_id": pipeline_document["id"],
+    "submission_id": submission_id,
+    "submission_name": submission_name,
+    "combined_result_object_name": combined_result_object_name,
+}
+
+await send_message_to_service_bus(
+    queue_name=os.environ["SEND_TO_EVENTHUB_QUEUE_NAME"],
+    message_contents=json.dumps(eventhub_queue_payload),
+)
+
