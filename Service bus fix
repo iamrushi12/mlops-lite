@@ -128,3 +128,19 @@ logging.info(
     submission_id,
     combined_result_object_name,
 )
+
+
+------------
+
+
+eventhub_queue_payload = {
+    "event_type": "pre_decision",
+    "pipeline_execution_id": pipeline_execution_id,
+    "submission_id": submission_id,
+    "submission_name": submission_name,
+    "combined_result_object_name":
+        combined_result_object_name,
+}
+------///-
+
+
