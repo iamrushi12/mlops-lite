@@ -85,3 +85,46 @@ return func.HttpResponse(
     status_code=200,
     mimetype="application/json",
 )
+
+
+
+
+--------------------
+
+
+
+
+
+pipeline_execution_id = pipeline_document.get(
+    "pipeline_execution_id"
+)
+
+submission_id = pipeline_document.get("submission_id")
+submission_name = pipeline_document.get("submission_name")
+combined_result_object_name = pipeline_document.get(
+    "combined_result_object_name"
+)
+
+missing_fields = [
+    field
+    for field, value in {
+        "submission_id": submission_id,
+        "submission_name": submission_name,
+        "combined_result_object_name": combined_result_object_name,
+    }.items()
+    if not value
+]
+
+if missing_fields:
+    raise ValueError(
+        "Invalid SendToEventHub Service Bus message. "
+        f"Missing fields: {', '.join(missing_fields)}"
+    )
+
+logging.info(
+    "Processing pre-decision Event Hub message "
+    "pipeline_execution_id=%s submission_id=%s object=%s",
+    pipeline_execution_id,
+    submission_id,
+    combined_result_object_name,
+)
