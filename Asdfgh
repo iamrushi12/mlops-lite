@@ -1,0 +1,29 @@
+outputs = get_pipeline_results(
+    token,
+    pipeline_document["id"],
+)
+
+if outputs:
+    combined_result_object_name = outputs[0]["object_name"]
+
+    output_content = get_pipeline_output_content(
+        token,
+        combined_result_object_name,
+    )
+
+    pipeline.review_snapshot = extract_business_fields(
+        output_content
+    )
+
+    eventhub_queue_payload = {
+        "event_type": "pre_decision",
+        "pipeline_id": pipeline_document["id"],
+        "submission_id": process.job_id,
+        "submission_name": process.submission_name,
+        "combined_result_object_name": combined_result_object_name,
+    }
+
+    await send_message_to_service_bus(
+        queue_name=os.environ["SEND_TO_EVENTHUB_QUEUE_NAME"],
+        message_contents=json.dumps(eventhub_queue_payload),
+    )
