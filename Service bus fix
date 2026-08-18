@@ -164,3 +164,48 @@ await send_message_to_service_bus(
     message_contents=json.dumps(eventhub_queue_payload),
 )
 
+-----------
+
+
+@app.function_name(name="SendToEventHub")
+@app.service_bus_queue_trigger(
+    arg_name="msg",
+    queue_name="%SEND_TO_EVENTHUB_QUEUE_NAME%",
+    connection="SERVICEBUS_CONNECTION",
+)
+def send_to_eventhub(msg: func.ServiceBusMessage):
+    try:
+        queue_message = json.loads(
+            msg.get_body().decode("utf-8")
+        )
+
+        submission_id = queue_message["submission_id"]
+        submission_name = queue_message["submission_name"]
+        combined_result_object_name = queue_message[
+            "combined_result_object_name"
+        ]
+
+        token = get_token()
+
+        combined_extraction_output = get_pipeline_output_content(
+            token,
+            combined_result_object_name,
+        )
+
+        publish_pre_decision_to_eventhub(
+            combined_extraction_output,
+            submission_id,
+            submission_name,
+            combined_result_object_name,
+        )
+
+        logging.info(
+            "Pre-decision Event Hub payload published for submission_id=%s",
+            submission_id,
+        )
+
+    except Exception:
+        logging.exception(
+            "Failed to process pre-decision Event Hub queue message"
+        )
+        raise
