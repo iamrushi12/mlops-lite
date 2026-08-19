@@ -27,3 +27,112 @@ if outputs:
         queue_name=os.environ["SEND_TO_EVENTHUB_QUEUE_NAME"],
         message_contents=json.dumps(eventhub_queue_payload),
     )
+
+
+
+@app.function_name(name="SendToEventHub")
+@app.service_bus_queue_trigger(
+    arg_name="msg",
+    queue_name="%SEND_TO_EVENTHUB_QUEUE_NAME%",
+    connection="SERVICEBUS_CONNECTION",
+)
+def send_to_eventhub(msg: func.ServiceBusMessage):
+    try:
+        queue_message = json.loads(
+            msg.get_body().decode("utf-8")
+        )
+
+        event_type = queue_message.get("event_type")
+
+        if event_type != "pre_decision":
+            logging.info(
+                "Ignoring non pre-decision Event Hub message: %s",
+                event_type,
+            )
+            return
+
+        pipeline_id = queue_message.get("pipeline_id")
+
+        if not pipeline_id:
+            raise ValueError(
+                "pipeline_id missing from pre-decision queue message"
+            )
+
+        logging.info(
+            "Starting pre-decision Event Hub processing "
+            "for pipeline_id=%s",
+            pipeline_id,
+        )
+
+        # Get submission information
+        process = process_repository.get_by_pipeline_id(
+            pipeline_id
+        )
+
+        if not process:
+            raise ValueError(
+                f"Process not found for pipeline_id={pipeline_id}"
+            )
+
+        submission_id = process.job_id
+        submission_name = process.submission_name
+
+        # DU API authentication
+        token = get_token()
+
+        # DU API -> obtain pipeline output
+        outputs = get_pipeline_results(
+            token,
+            pipeline_id,
+        )
+
+        if not outputs:
+            raise ValueError(
+                f"No pipeline outputs found for pipeline_id={pipeline_id}"
+            )
+
+        combined_result_object_name = outputs[0].get(
+            "object_name"
+        )
+
+        if not combined_result_object_name:
+            raise ValueError(
+                f"object_name missing for pipeline_id={pipeline_id}"
+            )
+
+        logging.info(
+            "Pipeline output resolved. pipeline_id=%s object_name=%s",
+            pipeline_id,
+            combined_result_object_name,
+        )
+
+        # Retrieve actual content
+        combined_extraction_output = get_pipeline_output_content(
+            token,
+            combined_result_object_name,
+        )
+
+        if not combined_extraction_output:
+            raise ValueError(
+                f"Empty output content for pipeline_id={pipeline_id}"
+            )
+
+        # Filtering + Event Hub publication
+        publish_pre_decision_to_eventhub(
+            combined_extraction_output,
+            submission_id,
+            submission_name,
+            combined_result_object_name,
+        )
+
+        logging.info(
+            "Pre-decision Event Hub publish completed "
+            "for pipeline_id=%s",
+            pipeline_id,
+        )
+
+    except Exception:
+        logging.exception(
+            "Pre-decision SendToEventHub processing failed"
+        )
+        raise
