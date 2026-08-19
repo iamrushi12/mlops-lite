@@ -4,7 +4,7 @@ Thank you for highlighting the security concerns around the current Azure Event 
 
 I have reviewed the relevant Microsoft Azure/Entra documentation to understand the recommended approach, particularly considering that the Document Understanding Function App/workloads and the target Event Hub are hosted in different Microsoft Entra tenants.
 
-Based on the Microsoft guidance, I agree that we should move away from the current connection-string/SAS-based authentication model. Azure Event Hubs supports Microsoft Entra ID authentication and Azure RBAC, removing the need to maintain shared access keys in the application. Microsoft also recommends granting the narrowest required access, and since our DU workload only needs to publish events, the appropriate Event Hub data-plane permission on the destination side would be Azure Event Hubs Data Sender, scoped as narrowly as possible to the required Event Hub. (Microsoft Learn)
+Based on the Microsoft guidance, I agree that we should move away from the current connection-string/SAS-based authentication model. Azure Event Hubs supports Microsoft Entra ID authentication and Azure RBAC, removing the need to maintain shared access keys in the application. Microsoft also recommends granting the narrowest required access, and since our DU workload only needs to publish events, the appropriate Event Hub data-plane permission on the destination side would be Azure Event Hubs Data Sender, scoped as narrowly as possible to the required Event Hub. (https://learn.microsoft.com/en-us/azure/event-hubs/authorize-access-azure-active-directory)
 
 There is an additional consideration in our case because this is a cross-tenant integration. Microsoft documents a Workload Identity Federation pattern in which a user-assigned managed identity (UAMI) attached to the Azure workload can be trusted by a Microsoft Entra application through a federated identity credential. Microsoft specifically states that the app registration must belong to the same tenant as the managed identity, and when resources in another tenant need to be accessed, the application must be configured as a multitenant application and provisioned into the target tenant. Microsoft also confirms that access to resources in another tenant is supported by this federation pattern, without requiring an application secret. (Microsoft Learn)
 
@@ -23,7 +23,7 @@ From the Document Understanding Platform Engineering side, could you please revi
 * Provide/confirm the non-secret configuration values required by the application, such as the UAMI Client ID, Application/Client ID, and any other tenant/application identifiers required for the federated authentication flow.
 * Confirm whether there are any additional security, networking, governance, or enterprise identity requirements that need to be considered before we proceed.
 
-Microsoft’s Azure Functions documentation also recommends identity-based connections where supported and notes that user-assigned managed identities provide greater flexibility for Function-hosted workloads. Microsoft additionally advises avoiding direct use of shared secrets whenever a more secure identity-based authentication mechanism is available. (Microsoft Learn)
+Microsoft’s Azure Functions documentation also recommends identity-based connections where supported and notes that user-assigned managed identities provide greater flexibility for Function-hosted workloads. Microsoft additionally advises avoiding direct use of shared secrets whenever a more secure identity-based authentication mechanism is available. (https://learn.microsoft.com/en-us/entra/workload-id/workload-identity-federation-config-app-trust-managed-identity)
 
 Once the DU-side identity configuration is confirmed and available, I can update the application-side Event Hub publisher authentication accordingly. The payload generation, filtering, pre/post-HITL processing, and Event Hub message schema should remain unchanged; the required code change would be limited primarily to the authentication/client-initialization mechanism and associated application configuration.
 
@@ -31,10 +31,10 @@ I would prefer not to remove the currently working Event Hub connection-string c
 
 For reference, the Microsoft documentation reviewed for this assessment includes:
 
-* Configure an application to trust a managed identity – Microsoft Entra Workload ID, including the documented cross-tenant Workload Identity Federation scenario. (Microsoft Learn)
-* Authorize access to Azure Event Hubs resources using Microsoft Entra ID, covering Entra authentication, Azure RBAC, role scope, and least-privilege access. (Microsoft Learn)
-* Authenticate an application with Microsoft Entra ID to access Event Hubs resources, including the Azure Event Hubs Data Sender role and token-based application authentication. (Microsoft Learn)
-* Configure connections to remote services in Azure Functions, covering identity-based connections and managed identities for Azure Functions. (Microsoft Learn)
+* Configure an application to trust a managed identity – Microsoft Entra Workload ID, including the documented cross-tenant Workload Identity Federation scenario. (https://learn.microsoft.com/en-us/entra/workload-id/workload-identity-federation-config-app-trust-managed-identity)
+* Authorize access to Azure Event Hubs resources using Microsoft Entra ID, covering Entra authentication, Azure RBAC, role scope, and least-privilege access. (https://learn.microsoft.com/en-us/azure/event-hubs/authorize-access-azure-active-directory)
+* Authenticate an application with Microsoft Entra ID to access Event Hubs resources, including the Azure Event Hubs Data Sender role and token-based application authentication. (https://learn.microsoft.com/en-us/azure/event-hubs/authenticate-application)
+* Configure connections to remote services in Azure Functions, covering identity-based connections and managed identities for Azure Functions. (https://learn.microsoft.com/en-us/azure/azure-functions/manage-connections)
 
 Could you please review the above approach and confirm whether Platform Engineering can support/provision the required UAMI, multitenant Entra application, federated identity configuration, and corresponding DU-side IaC changes?
 
