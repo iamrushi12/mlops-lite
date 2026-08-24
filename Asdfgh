@@ -136,3 +136,16 @@ def send_to_eventhub(msg: func.ServiceBusMessage):
             "Pre-decision SendToEventHub processing failed"
         )
         raise
+
+
+
+exceptions
+| where timestamp > ago(24h)
+| project
+    timestamp,
+    problemId,
+    type,
+    outerMessage,
+    innermostMessage,
+    operation_Name
+| order by timestamp desc
