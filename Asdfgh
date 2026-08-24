@@ -149,3 +149,29 @@ exceptions
     innermostMessage,
     operation_Name
 | order by timestamp desc
+
+
+
+
+exceptions
+| where timestamp > ago(24h)
+| where outerMessage has_any(
+    "ModuleNotFoundError",
+    "ImportError",
+    "function_app.py",
+    "DocUnderstanding"
+)
+or innermostMessage has_any(
+    "ModuleNotFoundError",
+    "ImportError",
+    "function_app.py",
+    "DocUnderstanding"
+)
+| project
+    timestamp,
+    problemId,
+    type,
+    outerMessage,
+    innermostMessage,
+    operation_Name
+| order by timestamp desc
