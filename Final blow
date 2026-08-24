@@ -1,0 +1,408 @@
+
+
+Objective
+
+Refactor the Pre-Decision Event Hub flow so that ALL Pre-Decision/Event Hub logic lives inside the HITL Pipeline Bridge Function App.
+
+Critical architectural rule
+
+Do NOT add, keep, or modify any Event Hub-specific logic inside the Document Processing Function App or CombinedExtractionOutput.
+
+CombinedExtractionOutput must remain responsible only for its original document-processing responsibilities.
+
+Remove from CombinedExtractionOutput anything that was previously added specifically for:
+
+* Event Hub publishing
+* Pre-decision payload construction
+* Pre-decision payload filtering
+* Event Hub metadata mapping
+* Event Hub API calls
+* Blob retrieval specifically for Event Hub
+* Event Hub authentication/token handling
+* Event Hub message creation
+* Event Hub queue handling
+
+Do not replace this logic with another Event Hub implementation inside Document Processing.
+
+⸻
+
+Required Architecture
+
+Use this flow:
+
+Document Processing
+        |
+        | Normal existing processing only
+        v
+Pipeline/HITL status
+        |
+        +---- pending_review
+        |        |
+        |        v
+        |   NEW Service Bus Queue
+        |        |
+        |        v
+        |   NEW Queue Trigger Function
+        |   inside HITL Pipeline Bridge
+        |        |
+        |        v
+        |   Retrieve required DU data
+        |   using pipeline/execution ID
+        |        |
+        |        +--> Get authentication/token if required
+        |        +--> Call required DU API
+        |        +--> Locate/read payload from Blob/Container
+        |
+        |        v
+        |   pre_decision_event_hub_payload.py
+        |        |
+        |        v
+        |   Filter/map payload
+        |        |
+        |        v
+        |   Validate required fields
+        |        |
+        |        v
+        |   Publish to Event Hub
+        |
+        |
+        +---- completed
+                 |
+                 v
+          Existing Post-HITL flow
+          inside HITL Pipeline Bridge
+                 |
+                 v
+             Event Hub
+
+⸻
+
+1. Pre-Decision trigger condition
+
+The Pre-Decision Event Hub process must happen only when the pipeline/HITL status is:
+
+pending_review
+
+When the status becomes pending_review, trigger a dedicated Service Bus queue for Pre-Decision processing.
+
+Do NOT use the old SendToEventHub queue implementation for this Pre-Decision flow.
+
+Create/use a dedicated queue-triggered function specifically for Pre-Decision Event Hub processing inside the HITL Pipeline Bridge Function App.
+
+The queue message should preferably contain only the identifiers/context required to retrieve the actual data, for example:
+
+pipeline_id / pipeline_execution_id
+submission_id
+combined_result_object_name
+status/step
+
+Do not pass the entire Combined Extraction Output through the queue unless the existing architecture genuinely requires it.
+
+⸻
+
+2. New Pre-Decision queue-triggered function
+
+Create a new Service Bus queue-triggered Azure Function inside the HITL Pipeline Bridge.
+
+The function should follow approximately this responsibility:
+
+@service_bus_queue_trigger
+def pre_decision_event_hub(...):
+
+When triggered, it should:
+
+1. Parse and validate the queue message.
+2. Obtain the pipeline/execution identifier.
+3. Obtain authentication/token using the existing project authentication implementation.
+4. Call the required existing DU API if necessary.
+5. Determine the Blob/container/object containing the required Combined Extraction Output.
+6. Retrieve the original payload from storage.
+7. Pass that payload to the Pre-Decision payload filtering module.
+8. Validate the final filtered Event Hub payload.
+9. Publish the filtered payload to Event Hub.
+10. Log success/failure clearly without logging unnecessary sensitive/full payload data.
+
+Reuse existing helpers/services where possible instead of duplicating authentication, Blob, API, or Event Hub clients.
+
+⸻
+
+3. Create a dedicated payload module
+
+Create:
+
+pre_decision_event_hub_payload.py
+
+inside the HITL Pipeline Bridge.
+
+ALL Pre-Decision Event Hub filtering/mapping logic currently located in CombinedExtractionOutput must be moved into this file.
+
+This file should have no Azure Function trigger logic.
+
+It should only be responsible for transforming the retrieved DU payload into the required Pre-Decision Event Hub payload.
+
+For example:
+
+def build_pre_decision_event_hub_payload(source_payload, ...):
+    ...
+    return filtered_payload
+
+Keep filtering/mapping isolated here so that:
+
+Queue Function
+    = orchestration
+pre_decision_event_hub_payload.py
+    = payload transformation/filtering
+Event Hub helper/client
+    = publishing
+
+Do not mix these responsibilities.
+
+⸻
+
+4. Payload filtering
+
+Move the existing Pre-Decision filtering implementation out of CombinedExtractionOutput and into:
+
+pre_decision_event_hub_payload.py
+
+Preserve the required downstream schema.
+
+The metadata mapping should correctly populate the expected values, including where applicable:
+
+{
+  "extras": {
+    "metadata": {
+      "metadata_schema_version": "...",
+      "use_cases": "...",
+      "submission_name": "...",
+      "source_file_names": "..."
+    }
+  }
+}
+
+Pay special attention to the existing field-name issue:
+
+source_file_names
+
+Do not incorrectly map this using old/inconsistent source_files naming if the source payload actually provides source_file_names.
+
+Remove unnecessary fields from the final Event Hub message according to the existing agreed filtering logic.
+
+Do not modify the original payload stored in Blob.
+
+⸻
+
+5. Event Hub publishing
+
+Only after the source payload has been:
+
+retrieved
+    ↓
+filtered
+    ↓
+mapped
+    ↓
+validated
+
+should the new Pre-Decision queue function publish it to Event Hub.
+
+Reuse the existing Event Hub publisher/helper in the HITL Pipeline Bridge wherever appropriate.
+
+Do not duplicate Event Hub client initialization if a reusable implementation already exists.
+
+Keep authentication/configuration compatible with the current project configuration and future RBAC/Managed Identity implementation.
+
+Do not introduce hard-coded:
+
+* connection strings
+* Event Hub names
+* namespaces
+* credentials
+* queue names
+* environment-specific values
+
+Use the existing configuration/environment-variable approach.
+
+⸻
+
+6. Post-HITL flow
+
+The Post-HITL Event Hub implementation already exists inside the HITL Pipeline Bridge.
+
+Do not move Post-HITL logic into Document Processing.
+
+The expected state transition is:
+
+pending_review
+    ↓
+Pre-Decision Event Hub flow
+completed
+    ↓
+Post-HITL Event Hub flow
+
+Keep the existing Post-HITL implementation intact unless a small refactor is required to share reusable Event Hub/authentication helpers.
+
+Do NOT combine Pre-Decision and Post-HITL payload filtering into one large function.
+
+They may reuse common helpers, but their payload builders should remain logically separate.
+
+⸻
+
+7. Document Processing / CombinedExtractionOutput
+
+After this refactor, CombinedExtractionOutput should contain ZERO Pre-Decision/Event Hub-specific implementation.
+
+Specifically, I should NOT see code there that:
+
+builds Event Hub payload
+filters Event Hub payload
+calls Event Hub
+creates Event Hub messages
+retrieves Blob specifically for Event Hub
+gets authentication specifically for Event Hub publishing
+handles Pre-Decision Event Hub metadata
+contains Event Hub-specific try/except blocks
+
+Remove only the Event Hub/Pre-Decision additions.
+
+Do NOT disturb the original Combined Extraction Output processing flow.
+
+This is extremely important because we do not want this Event Hub implementation to create regressions in Document Processing.
+
+⸻
+
+8. Separation of responsibilities
+
+Final architecture should approximately look like:
+
+HITL Pipeline Bridge
+│
+├── function_app.py
+│      │
+│      ├── existing HITL functions
+│      ├── NEW Pre-Decision Service Bus Queue Trigger
+│      └── existing Post-HITL trigger/logic
+│
+├── pre_decision_event_hub_payload.py
+│      └── Pre-Decision payload filtering/mapping only
+│
+├── existing post-HITL payload module
+│      └── Post-HITL payload logic
+│
+├── Event Hub publisher/helper
+│      └── Event Hub transmission
+│
+└── existing API / Blob / authentication helpers
+
+Do not introduce unnecessary new abstractions if equivalent helpers already exist.
+
+⸻
+
+9. Implementation constraints
+
+Before changing code:
+
+1. Inspect the existing Document Processing CombinedExtractionOutput implementation.
+2. Identify exactly which blocks were introduced specifically for Pre-Decision/Event Hub.
+3. Inspect the HITL Pipeline Bridge structure and existing Service Bus trigger patterns.
+4. Inspect the existing Post-HITL Event Hub implementation.
+5. Inspect existing authentication, Blob, API and Event Hub helper classes/functions.
+6. Reuse existing patterns instead of creating duplicate implementations.
+
+Then make the minimum required code changes.
+
+Do not refactor unrelated code.
+
+Do not rename unrelated variables.
+
+Do not modify existing pipeline behavior unnecessarily.
+
+Do not modify infrastructure/configuration files unless the new queue/function genuinely requires a new setting.
+
+⸻
+
+10. Error handling
+
+The new function must provide useful logs for each stage:
+
+Pre-Decision queue message received
+Pipeline/execution ID resolved
+Authentication successful
+DU API request successful
+Combined output location resolved
+Blob payload retrieved
+Pre-Decision payload built
+Payload validation successful
+Event Hub publish successful
+
+For failures, clearly identify the stage.
+
+For example:
+
+Failed retrieving Combined Extraction Output
+Failed building Pre-Decision Event Hub payload
+Missing required field: submission_id
+Failed publishing Pre-Decision payload to Event Hub
+
+Do not silently swallow exceptions.
+
+⸻
+
+11. Expected final flow
+
+The final implementation MUST behave like this:
+
+Normal DU Processing
+        ↓
+Combined Extraction Output generated/stored
+        ↓
+Normal pipeline continues
+        ↓
+Status becomes pending_review
+        ↓
+Dedicated Pre-Decision Service Bus message
+        ↓
+HITL Pipeline Bridge queue function triggered
+        ↓
+Use pipeline/execution ID
+        ↓
+Authenticate
+        ↓
+Call required DU API
+        ↓
+Find Blob/container/object
+        ↓
+Read original Combined Extraction Output
+        ↓
+pre_decision_event_hub_payload.py
+        ↓
+Filter + map required fields
+        ↓
+Validate payload
+        ↓
+Publish Pre-Decision event to Event Hub
+        ↓
+HITL processing continues
+        ↓
+Status becomes completed
+        ↓
+Existing Post-HITL Event Hub flow
+
+Most important rule
+
+Nothing related to Pre-Decision Event Hub payload creation, filtering, retrieval or publishing should remain inside CombinedExtractionOutput or the Document Processing Function App.
+
+The entire Event Hub implementation for both Pre-Decision and Post-HITL belongs to the HITL Pipeline Bridge.
+
+For now, focus only on correctly refactoring the Pre-Decision implementation while preserving the already-working Post-HITL implementation.
+
+After analyzing the existing code, provide/apply only the minimum required changes and clearly show:
+
+1. What code must be removed from CombinedExtractionOutput.
+2. What new queue-trigger function is created in HITL Pipeline Bridge.
+3. The new pre_decision_event_hub_payload.py.
+4. What existing helpers are reused.
+5. Any configuration/queue setting that must be added.
+6. Why each changed file is necessary.
+
+Do not make unrelated changes.
