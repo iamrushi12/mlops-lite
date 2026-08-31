@@ -121,3 +121,30 @@ Please let us know if you need any additional information.
 Thanks & Regards,
 Rushi Yadav
 
+
+
+
+
+Hi Siddharth,
+
+Quick update following our discussion with the Data Platform Engineering team.
+
+They have confirmed that they are happy to support the required changes on their side and are ready to update their pipelines/configuration for the Event Hub setup, including moving away from local authentication and using the managed-identity-based approach.
+
+To move this forward, could you please help us proceed with the Platform Engineering / DU-side activities that you mentioned earlier?
+
+From my understanding, we need the following from the Platform Engineering side:
+
+* Set up/provide the User-Assigned Managed Identity (UAMI) and associate it with the DU workload/Function App as required.
+* Create/configure the multi-tenant Entra ID App Registration for DU and configure the Federated Identity Credential against the managed identity.
+* Recreate/update the existing DU Azure DevOps service connection as multi-tenant, so that the DU application pipeline can perform the required RBAC/role assignment on the Event Hub in the AXA UK Azure tenant.
+* Once the setup is available, please share/confirm the required identifiers/configuration, such as UAMI_CLIENT_ID, APP_CLIENT_ID, TARGET_TENANT_ID, and any other values we need from the Platform Engineering side.
+
+On the Data Platform Engineering side, they can then proceed with the corresponding Event Hub changes, including disabling local authentication and making the necessary pipeline updates for the managed-identity/OAuth-based setup.
+
+Once the above Platform Engineering setup is in place, I can take care of the required DU application/pipeline configuration changes, including updating the Event Hub authentication/connection configuration and coordinating the required role assignment/testing.
+
+Please let me know if my understanding of the Platform Engineering actions above is correct. If so, could you please help us get these items in place so that we can proceed with the implementation and close this ticket as soon as possible?
+
+Thanks,
+[Your Name]
