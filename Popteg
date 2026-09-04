@@ -1,0 +1,53 @@
+MLOps Skills and Tools
+
+* MLOps: MLflow, Model Registry, Model Monitoring, Drift Detection, Automated Retraining
+* ML Orchestration: Airflow, Databricks, DAGs, Dynamic Branching, XCom
+* Cloud: Microsoft Azure, AWS
+* CI/CD: Azure DevOps, GitHub, Jenkins, CI/CD for ML
+* Containers: Kubernetes, Docker
+* Infrastructure as Code: Terraform, CloudFormation
+* Big Data: PySpark, Spark UI, Delta
+* Programming & Data: Python, SQL, JSON
+* Troubleshooting: OOM Errors, Data Skew, Stuck Tasks, Distributed Systems
+
+
+Current Role
+
+MLOps Engineer @ Crecita
+
+* Implementing and scaling enterprise MLOps platforms with focus on reliability, automation and performance.
+* Designing end-to-end ML lifecycle management using MLflow, including experiment tracking, artifact versioning and Model Registry governance.
+* Developing CI/CD pipelines for ML workloads using Docker and Kubernetes.
+* Building advanced ML orchestration workflows using Airflow and Databricks.
+* Supporting model promotion from Staging to Production with deployment and monitoring gates.
+* Implementing model monitoring, drift detection and automated retraining workflows.
+* Troubleshooting production issues including OOM errors, data skew and stuck Spark/Airflow tasks.
+* Collaborating with Data Scientists and Data Engineers on scalable production ML solutions.
+
+
+DevOps Engineer @ Edera
+
+Dec 2021 – Feb 2025
+
+* Supported reliable and automated DevOps and CI/CD platforms.
+* Developed application CI/CD pipelines for automated testing, containerization and deployment.
+* Worked with Docker and Airflow for application packaging and workflow orchestration.
+* Supported application deployments across Dev and Staging environments.
+* Implemented monitoring and alerting for CI/CD and deployment infrastructure.
+* Troubleshot long-running jobs, deployment failures, build logs and container issues.
+* Applied Git development practices and participated in code and pipeline reviews.
+* Collaborated with development teams to improve deployment automation and platform reliability.
+
+
+AI Engineer @ AXA
+
+* Working on enterprise AI/ML and MLOps solutions, supporting end-to-end development, deployment and operationalization of AI workloads.
+* Building and maintaining CI/CD pipelines for AI/ML applications across multiple environments.
+* Developing cloud-native solutions and automation using Microsoft Azure services.
+* Working with Databricks, MLflow and Airflow for ML lifecycle management, orchestration and model workflows.
+* Containerizing and deploying applications using Docker and Kubernetes.
+* Implementing infrastructure and application configurations using Infrastructure as Code.
+* Working on secure cloud integrations using Managed Identity, RBAC and Key Vault.
+* Monitoring, troubleshooting and improving reliability of AI/ML pipelines and production workloads.
+* Collaborating with Data Scientists, Data Engineers, Developers and Platform teams to productionize AI solutions.
+
