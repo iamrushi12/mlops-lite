@@ -1,0 +1,708 @@
+Document Understanding: Dev cross-tenant Event Hub implementation runbook
+
+Prepared 8 September 2026 from the supplied publisher, Bicep, Copilot and Platform Engineering screenshots, the available previous-conversation summary, and Microsoft documentation. This is an implementation brief for the clean main-branch clone in your VDI. The actual repository and live Azure resources were not available here, so the examples are integration templates, not an applied or deployed patch. Screenshot line numbers are navigation hints only.
+
+1. The decision that must come before another ID change
+
+The supplied publisher.py is SAS-only: both producer builders call from_connection_string. App registration IDs and an Azure role assignment do not change that code path.
+
+Microsoft’s documentation currently conflicts on system-assigned managed identity (SAMI) as an app’s federated credential. The dedicated managed-identity federation article explicitly says user-assigned only. [1] A newer Microsoft.Identity.Web article, updated 29 April 2026, describes both system-assigned and user-assigned identities. [21] The latter is a .NET guide; it does not by itself verify this Python cross-tenant deployment.
+
+Therefore, do not claim that SAMI is conclusively unsupported everywhere, or that this exact SAMI deployment is guaranteed to work. Preserve your requested system-assigned configuration. First run the token-only Dev probe in section 9 using ManagedIdentityCredential() without a client ID, the real Function principal in the app’s FIC, and the UK resource tenant for the app token. This SDK constructor selects the host’s system identity. [22] Verify the existing trust and the result with Platform before treating the migration as supported and complete.
+
+If the trust is correct but the exchange is rejected because of identity/issuer support, retain the exact error and take it with the conflicting documentation to Platform/Microsoft. The consistently documented alternative is a user-assigned managed identity (UAMI), which can coexist with SAMI [7], but changing the approved identity model is not a code-only fix and is not assumed in this runbook. Do not silently add an identity or introduce secrets.
+
+The missing trust/identity evidence is not proof of the exact cause of the earlier failed deployment. That needs the first failing invocation/token/send evidence. App IDs and RBAC alone still do not supply a usable runtime credential.
+
+2. What the current screenshots establish
+
+|Evidence                                            |What it establishes                                                                                                                                                              |What it does not establish                                                                                                                              |
+|----------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------|
+|`src/common/azure/eventhub/publisher.py`            |Sync and async publishers serialize the payload, create a batch and send using a SAS producer.                                                                                   |No federated runtime authentication is visible.                                                                                                         |
+|Copilot’s repository analysis                       |Actual Event Hub calls are in the HITL bridge flow, consuming `sendtoeventhub`; the email-ingestion function creates a publisher object but does not call `publish` in that file.|Creating the object does not send an event. Copilot’s description is secondary evidence until checked in the clone.                                     |
+|`app.bicep`, around the UT/PR storage assignments   |Deployment assigns storage roles to specified principal IDs in UT/PR.                                                                                                            |It does not show the inbound sender’s token acquisition or runtime credentials. These conditions do not establish Dev Event Hub access.                 |
+|Platform’s 2 September message                      |Three application client IDs are reported, with representations in Health and UK; sender access is reported for Dev.                                                             |The message does not expose each actual role assignment scope/principal, FIC issuer/subject/audience, or the Function App’s attached managed identities.|
+|Requests visible in an Event Hub namespace dashboard|Some operations reached that namespace.                                                                                                                                          |Neither the source workload nor successful payload publication is proved by that count.                                                                 |
+
+Retain the existing publishing location: the HITL bridge’s queue consumer, with its current pre-decision/post-HITL helpers. Keep the final JSON supplied to the publisher unchanged by the authentication change. The current agreed routing uses pending_review and completed; inspect the actual callers before editing. If a business path bypasses either status, check how that path queues its required event.
+
+Scope this rollout to Dev. QA and other environments remain on their existing SAS configuration until separately migrated.
+
+3. Why the email-ingestion implementation cannot simply be reversed
+
+|Concern                           |Existing inbound email/storage path                                 |Outbound Event Hub path                                       |
+|----------------------------------|--------------------------------------------------------------------|--------------------------------------------------------------|
+|Direction described by you        |Tenant B → Tenant A                                                 |Tenant A → Tenant B                                           |
+|Resource authorizing access       |Storage in the receiving tenant                                     |Event Hub in UK                                               |
+|Resource role                     |The storage roles shown in Bicep                                    |Azure Event Hubs Data Sender                                  |
+|Principal receiving the assignment|The sender’s service-principal representation in the resource tenant|The selected app’s UK enterprise-application service principal|
+|Runtime authentication            |Not visible in the supplied storage role-assignment snippet         |Must be implemented in the publisher credential path          |
+
+Azure role assignments use the security principal in the resource tenant. A variable called multiTenantSpnObjectIds is only a name; it does not prove a raw foreign-tenant object ID is valid at that resource. An app registration and an enterprise application/service principal are different objects. [2][3]
+
+A DevOps service connection authenticates pipeline tasks. Its federated credential may have a service-connection subject such as sc://... or a newer subject containing /sc/. That is not automatically a credential usable by a running Azure Function. Check the actual issuer and subject, because newer DevOps service connections can also use a Microsoft Entra issuer. [8]
+
+The Capture managed-identity article visible above Platform’s message concerns Event Hub → destination storage. It does not configure your Function → Event Hub. [9]
+
+4. Map the IDs without guessing
+
+The following values were transcribed from the Platform screenshot. Copy final values directly from Azure or the original message before using them.
+
+|Item                                                                            |Screenshot value / status                                |
+|--------------------------------------------------------------------------------|---------------------------------------------------------|
+|Health / proposed source tenant                                                 |`edd791b6-a6e2-450b-9582-5c29c2cc2d25`                   |
+|UK / Event Hub resource tenant                                                  |`5a30f2fd-6a7e-4710-b03c-500ce062a4ca`                   |
+|DevOps application client ID                                                    |`0615311a-4860-4a0f-8a67-874461b864f0`                   |
+|HITL-named application client ID                                                |`cbcd7702-8eb6-47c7-bef8-d3defb2e3ba5`                   |
+|Document-function-named application client ID                                   |`499430b7-404d-43cb-ae4b-6c7fd082156d`                   |
+|Actual Dev HITL Function’s system-assigned principal/object ID                  |**Not established by these app-registration screenshots**|
+|Application whose UK principal has effective Data Sender on the exact target hub|**Needs IAM verification**                               |
+|Exact Dev Event Hub namespace and hub/entity name                               |**Reuse the existing intended target; not shown here**   |
+
+Do not call the HITL-named app registration’s client ID the Function App managed-identity client ID. Similar names do not establish that relationship. Managed-identity service principals do not have an associated application object in the same way normal app registrations do. [2] For the requested SAMI selection, pass no client ID to ManagedIdentityCredential. [22]
+
+|ID or value                                              |Where it belongs                                                                               |
+|---------------------------------------------------------|-----------------------------------------------------------------------------------------------|
+|UK directory/tenant ID                                   |`ClientAssertionCredential(tenant_id=...)`                                                     |
+|Selected multitenant application’s **client ID**         |`ClientAssertionCredential(client_id=...)`                                                     |
+|Function’s system-assigned identity                      |`ManagedIdentityCredential()` with no client ID                                                |
+|That Function identity’s **principal/object ID**         |Candidate runtime federated credential `subject` on the Health home app; validate via the probe|
+|Health home app registration’s **object ID**             |Administration of that application’s federated credentials                                     |
+|Selected application’s UK service-principal **object ID**|UK Event Hub IAM `principalId`                                                                 |
+|Event Hub fully qualified namespace                      |Producer destination, e.g. `<namespace>.servicebus.windows.net`                                |
+|Event Hub entity name                                    |Producer `eventhub_name`; no consumer group is required for sending                            |
+
+Select EVENT_HUB_APP_CLIENT_ID by evidence: its home app must trust the actual runtime identity, and its UK principal must have sender access to the destination. The HITL-named app is a candidate for the HITL workload, not an automatically correct choice. If only the DevOps app has Data Sender but only a pipeline FIC, the existing configuration is not yet a Function runtime credential path.
+
+5. Verify the existing Azure configuration first
+
+Use the portal, or have the resource owner run the read-only commands below if your account cannot view the relevant tenant. Do not interpret a permission-denied result as proof the resource is absent. These commands are not token acquisition by the Function; they are administrative inspection.
+
+A. Health tenant: actual running Function App
+
+Portal: switch to Health → the Dev HITL bridge Function App → Identity → System assigned. Confirm it is enabled and copy its principal ID and tenant ID. Check the exact deployed app/slot, not an app registration with a similar name.
+
+```bash
+az login --tenant '<HEALTH_TENANT_ID>'
+az account set --subscription '<HEALTH_SUBSCRIPTION_ID>'
+az functionapp identity show \
+  --resource-group '<DEV_RESOURCE_GROUP>' \
+  --name '<ACTUAL_DEV_HITL_FUNCTION_APP>'
+```
+
+If using a deployment slot, inspect that slot’s identity as well. Identity configuration is specific to the running resource. [7]
+
+B. Health tenant: selected application’s runtime trust
+
+Portal: Entra ID → App registrations → select the candidate by client ID → Overview and Certificates & secrets → Federated credentials.
+
+```bash
+az ad app show --id '<CANDIDATE_APP_CLIENT_ID>' \
+  --query '{displayName:displayName,clientId:appId,appObjectId:id,signInAudience:signInAudience}'
+
+az ad app federated-credential list --id '<HEALTH_APP_OBJECT_ID>' \
+  --query '[].{name:name,issuer:issuer,subject:subject,audiences:audiences}'
+```
+
+The intended runtime FIC should match the following data. This is an inspection/repair template for Platform, not proof the FIC currently exists:
+
+```json
+{
+  "name": "du-hitl-eventhub-dev",
+  "issuer": "https://login.microsoftonline.com/edd791b6-a6e2-450b-9582-5c29c2cc2d25/v2.0",
+  "subject": "<VERIFIED_DEV_HITL_FUNCTION_SYSTEM_IDENTITY_PRINCIPAL_ID>",
+  "audiences": ["api://AzureADTokenExchange"]
+}
+```
+
+Compare values exactly; do not substitute the UK tenant into this source issuer. Verify multitenant configuration and the source tenant against the actual identity. A successfully created FIC with wrong values can still fail at token exchange. [6] The SAMI subject form is described by the newer Microsoft.Identity.Web guide [21]; the documentation discrepancy in section 1 remains a verification requirement.
+
+C. UK tenant: selected application’s enterprise principal and sender scope
+
+Portal: switch to UK → Entra ID → Enterprise applications → search by the same application client ID → copy its object ID. Then open the exact Event Hub → Access control (IAM) → view/check access for that principal. Include an assignment inherited from the parent namespace if applicable.
+
+```bash
+az login --tenant '5a30f2fd-6a7e-4710-b03c-500ce062a4ca'
+az account set --subscription '<UK_EVENT_HUB_SUBSCRIPTION_ID>'
+
+az ad sp show --id '<SELECTED_APP_CLIENT_ID>' \
+  --query '{displayName:displayName,clientId:appId,spObjectId:id,principalType:servicePrincipalType}'
+
+az role assignment list \
+  --scope '<FULL_UK_EVENT_HUB_RESOURCE_ID>' \
+  --include-inherited \
+  --fill-principal-name false \
+  --query '[].{role:roleDefinitionName,principalId:principalId,principalType:principalType,scope:scope}' \
+  --output table
+```
+
+Match the role assignment’s principalId to the UK service-principal object ID returned above. The role is Azure Event Hubs Data Sender, preferably scoped to the intended hub. Its built-in role ID is 2b629674-e913-4c01-ae53-ef4638d8f975. An app’s API permissions screen does not establish this Azure resource role assignment. [3][10][11]
+
+No client secret, Microsoft Graph application permission, or receiver role is necessary for the proposed sender runtime. Administrative tooling may require directory/resource access separately.
+
+6. Proposed variable contract
+
+These are proposed consistent names. Copilot should reuse equivalent existing names where appropriate and document the final mapping. Use Event-Hub-specific names so existing DefaultAzureCredential consumers for Service Bus, Storage, Cosmos or Key Vault are not redirected by global AZURE_CLIENT_ID/AZURE_TENANT_ID changes.
+
+|Azure DevOps variable                        |Parent Bicep parameter             |HITL app setting                    |Dev value                                                                                 |
+|---------------------------------------------|-----------------------------------|------------------------------------|------------------------------------------------------------------------------------------|
+|`EVENT_HUB_AUTH_MODE`                        |`eventHubAuthMode`                 |`EVENT_HUB_AUTH_MODE`               |`rbac_federated`, only after prerequisites are verified                                   |
+|`EVENT_HUB_FULLY_QUALIFIED_NAMESPACE`        |`eventHubFullyQualifiedNamespace`  |Same as variable                    |Existing namespace hostname; no `sb://`, `https://`, slash or entity path                 |
+|`EVENT_HUB_NAME`                             |Existing Event Hub name parameter  |`EVENT_HUB_NAME`                    |Existing intended Dev hub/entity name                                                     |
+|`EVENT_HUB_TARGET_TENANT_ID`                 |`eventHubTargetTenantId`           |Same as variable                    |UK tenant ID above                                                                        |
+|`HITL_EVENT_HUB_APP_CLIENT_ID`               |`hitlEventHubAppClientId`          |`EVENT_HUB_APP_CLIENT_ID`           |Selected application’s verified client ID                                                 |
+|`EVENT_HUB_TRANSPORT_TYPE`                   |`eventHubTransportType`            |Same as variable                    |`amqp` to preserve the shown SDK default; `amqp_websocket` if using the approved 443 route|
+|Existing `EVENT_HUB_CONNECTION_STRING` secret|Existing secure parameter/reference|Existing setting in SAS environments|Preserve existing non-Dev delivery and Key Vault handling                                 |
+
+If inspection proves the document-processing app itself calls publish, use a separate DOCUMENT_EVENT_HUB_APP_CLIENT_ID deployment input, mapping it to that app’s EVENT_HUB_APP_CLIENT_ID. Its own system identity must have a corresponding runtime trust; it cannot borrow the HITL Function’s system identity. Do not assume both apps should use the same application. Merely importing or instantiating the publisher does not require migrating the document app’s runtime settings.
+
+No Function managed-identity client ID, managed-identity object ID, app object ID or UK service-principal object ID is required as a publisher runtime setting for this SAMI candidate. The object IDs are used to establish/verify trust and authorization outside the publisher. Health’s tenant ID belongs in the FIC issuer; the final-token runtime tenant setting is UK.
+
+The new identifiers/hostnames are configuration, not secrets. The existing SAS connection string remains a secret. Scope Dev values to the Dev variable group. Define EVENT_HUB_AUTH_MODE=sas in non-Dev deployment configuration, or retain equivalent existing behavior. Define the shared transport default as well; do not allow unresolved $(VARIABLE) text into active app settings.
+
+Code must choose the mode explicitly. rbac_federated must never silently fall back to SAS when configuration or authentication fails. This allows a successful Dev test to demonstrate RBAC was used.
+
+7. Files Copilot should change in the clean clone
+
+|File / location                                                             |Intended change                                                                                                                                                                   |
+|----------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+|`src/common/azure/eventhub/publisher.py`                                    |Add mode selection, federated credential construction, sync/async lifecycle handling, and useful publish diagnostics. Preserve serializers and the public `publish` call contract.|
+|`infra/templates/app.bicep` or the actual matching parent template          |Declare/pass the new parameters into the HITL module. Preserve existing deployment parameters and app settings.                                                                   |
+|`hitl-pipeline-bridge-app.bicep`                                            |Map the parameters to runtime settings on the actual publisher. Preserve its system-assigned identity and any existing identity assignments.                                      |
+|Existing `deploy.steps.yaml` / `deploy.steps.yml`                           |Pass the values from the correct Dev variable group through the existing deployment command/task. Follow the actual repository filename.                                          |
+|Existing `variables.yml` / `variables-dv.yml` / variable group wiring       |Establish defaults and Dev-only overrides without conflicting duplicate variable definitions.                                                                                     |
+|Requirements/lockfiles actually included in each function deployment package|Verify compatible `azure-identity` and `azure-eventhub`; include the required async transport dependency if the existing async publisher needs it.                                |
+|HITL queue handler and existing pre/post publishing helpers                 |Add correlation/checkpoint logs and ensure exceptions propagate to the queue handler; keep the business routing/payload contract.                                                 |
+
+The screenshot gives approximate anchors: the two producer builders near lines 58 and 107, main Event Hub settings around app.bicep:553, HITL settings around hitl-pipeline-bridge-app.bicep:233, deployment wiring around line 121. Search the clone; do not patch those line numbers blindly.
+
+Bicep settings example
+
+The following is a fragment for the child HITL module. The parent passes its HITL-specific app client input into these generic module parameters. Extend the existing app settings collection; do not replace the entire collection. Enable this candidate mode in Dev only for the verified test/rollout described above.
+
+```bicep
+@allowed(['sas', 'rbac_federated'])
+param eventHubAuthMode string = 'sas'
+param eventHubFullyQualifiedNamespace string = ''
+param eventHubTargetTenantId string = ''
+param eventHubAppClientId string = ''
+@allowed(['amqp', 'amqp_websocket'])
+param eventHubTransportType string = 'amqp'
+
+var eventHubRbacSettings = eventHubAuthMode == 'rbac_federated' ? [
+  {
+    name: 'EVENT_HUB_FULLY_QUALIFIED_NAMESPACE'
+    value: eventHubFullyQualifiedNamespace
+  }
+  {
+    name: 'EVENT_HUB_TARGET_TENANT_ID'
+    value: eventHubTargetTenantId
+  }
+  {
+    name: 'EVENT_HUB_APP_CLIENT_ID'
+    value: eventHubAppClientId
+  }
+] : []
+
+var eventHubModeSettings = [
+  {
+    name: 'EVENT_HUB_AUTH_MODE'
+    value: eventHubAuthMode
+  }
+  {
+    name: 'EVENT_HUB_TRANSPORT_TYPE'
+    value: eventHubTransportType
+  }
+]
+
+// In the existing app-settings construction:
+// concat(existingAppSettings, eventHubModeSettings, eventHubRbacSettings)
+// Retain EVENT_HUB_NAME and the existing SAS configuration where appropriate.
+```
+
+Deduplicate setting names when merging. Preserve the existing Function App identity block, including SystemAssigned and any pre-existing assigned identity map. This candidate implementation does not require adding a UAMI or changing existing dependency authentication.
+
+A UK Event Hub role assignment belongs to the UK deployment context. Your Health deployment cannot acquire UK authorization by adding an object ID to app settings. If Platform already owns the role assignment, verify it rather than create a duplicate. The equivalent UK Bicep shape, for the authorized owning deployment, is:
+
+```bicep
+param namespaceName string
+param eventHubName string
+param ukAppServicePrincipalObjectId string
+
+resource ehNamespace 'Microsoft.EventHub/namespaces@2024-01-01' existing = {
+  name: namespaceName
+}
+resource eh 'Microsoft.EventHub/namespaces/eventhubs@2024-01-01' existing = {
+  parent: ehNamespace
+  name: eventHubName
+}
+var senderRoleId = subscriptionResourceId(
+  'Microsoft.Authorization/roleDefinitions',
+  '2b629674-e913-4c01-ae53-ef4638d8f975'
+)
+resource senderAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(eh.id, ukAppServicePrincipalObjectId, senderRoleId)
+  scope: eh
+  properties: {
+    principalId: ukAppServicePrincipalObjectId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: senderRoleId
+  }
+}
+```
+
+Deployment YAML mapping example
+
+Merge this env mapping into the existing Health AzureCLI deployment task. Its service connection remains the one authorized to deploy the source resources. Do not replace it with an Event Hub application ID.
+
+```yaml
+env:
+  EH_AUTH_MODE: $(EVENT_HUB_AUTH_MODE)
+  EH_NAMESPACE: $(EVENT_HUB_FULLY_QUALIFIED_NAMESPACE)
+  EH_TARGET_TENANT: $(EVENT_HUB_TARGET_TENANT_ID)
+  EH_HITL_APP: $(HITL_EVENT_HUB_APP_CLIENT_ID)
+  EH_TRANSPORT: $(EVENT_HUB_TRANSPORT_TYPE)
+```
+
+For a Bash-based deployment task, extend its existing argument construction as follows. Keep all existing deployment arguments, the existing Event Hub name parameter, and existing secure parameters. Adapt the parent parameter names to the actual template.
+
+```bash
+set -euo pipefail
+
+case "$EH_AUTH_MODE" in
+  sas|rbac_federated) ;;
+  *) echo 'Invalid EVENT_HUB_AUTH_MODE'; exit 1 ;;
+esac
+case "$EH_TRANSPORT" in
+  amqp|amqp_websocket) ;;
+  *) echo 'Invalid EVENT_HUB_TRANSPORT_TYPE'; exit 1 ;;
+esac
+
+eh_parameters=(
+  "eventHubAuthMode=$EH_AUTH_MODE"
+  "eventHubTransportType=$EH_TRANSPORT"
+)
+
+if [[ "$EH_AUTH_MODE" == 'rbac_federated' ]]; then
+  for key in EH_NAMESPACE EH_TARGET_TENANT EH_HITL_APP; do
+    value="${!key:-}"
+    if [[ -z "$value" || "$value" == *'$('* ]]; then
+      echo "Missing or unresolved Event Hub setting: $key"
+      exit 1
+    fi
+  done
+  eh_parameters+=(
+    "eventHubFullyQualifiedNamespace=$EH_NAMESPACE"
+    "eventHubTargetTenantId=$EH_TARGET_TENANT"
+    "hitlEventHubAppClientId=$EH_HITL_APP"
+  )
+fi
+
+# Append --parameters "${eh_parameters[@]}" to the existing
+# az deployment group create invocation; retain its other arguments.
+```
+
+Use the equivalent structured parameter passing if the repository uses PowerShell or an ARM deployment task. Parameter files and CLI parameters are supported Bicep deployment inputs. [12] Do not log secrets, full environment dumps, or expanded connection strings while verifying the mapping.
+
+8. Publisher implementation contract and reference core
+
+The credential chain is:
+
+1. The host’s selected managed identity obtains an assertion for api://AzureADTokenExchange/.default; the requested SAMI candidate selects the host identity without a client ID.
+2. ClientAssertionCredential authenticates the selected multitenant app in the UK resource tenant using that assertion.
+3. The Event Hubs producer requests a token for https://eventhubs.azure.net/.default through that credential and sends the existing serialized JSON.
+
+The first assertion is not the final Event Hub access token. Do not send an AzureADTokenExchange token directly to Event Hub. This two-token mechanism is described by Microsoft’s identity team [23]; the SAMI support uncertainty still requires the probe before claiming success.
+
+This synchronous reference core shows mode selection and resource ownership for the SAMI candidate. Integrate it with the existing class/serializer and call sites after the Dev token probe verifies the existing configuration; it is not a full replacement for the screenshot’s module. Token/configuration work is done when publishing, not at module import or publisher-object construction. SDK construction/callback details are documented separately. [22][24]
+
+```python
+import os
+from contextlib import ExitStack, contextmanager
+from uuid import UUID
+
+from azure.eventhub import EventHubProducerClient, TransportType
+from azure.identity import ClientAssertionCredential, ManagedIdentityCredential
+
+
+def _required(name: str) -> str:
+    value = os.getenv(name, '').strip()
+    if not value or '$(' in value or value.startswith('<'):
+        raise ValueError(f'Missing or unresolved Event Hub setting: {name}')
+    return value
+
+
+def _required_guid(name: str) -> str:
+    value = _required(name)
+    try:
+        UUID(value)
+    except ValueError as exc:
+        raise ValueError(f'Event Hub setting must be a GUID: {name}') from exc
+    return value
+
+
+@contextmanager
+def eventhub_producer_sync():
+    mode = os.getenv('EVENT_HUB_AUTH_MODE', 'sas').strip().lower()
+    transport_name = os.getenv('EVENT_HUB_TRANSPORT_TYPE', 'amqp').strip().lower()
+    transports = {
+        'amqp': TransportType.Amqp,
+        'amqp_websocket': TransportType.AmqpOverWebsocket,
+    }
+    if transport_name not in transports:
+        raise ValueError('Invalid EVENT_HUB_TRANSPORT_TYPE')
+    options = {'transport_type': transports[transport_name], 'buffered_mode': False}
+
+    with ExitStack() as resources:
+        if mode == 'sas':
+            connection_string = _required('EVENT_HUB_CONNECTION_STRING')
+            has_entity_path = any(
+                part.strip().lower().startswith('entitypath=')
+                for part in connection_string.split(';')
+            )
+            if has_entity_path:
+                producer = EventHubProducerClient.from_connection_string(
+                    connection_string, **options
+                )
+            else:
+                producer = EventHubProducerClient.from_connection_string(
+                    connection_string,
+                    eventhub_name=_required('EVENT_HUB_NAME'),
+                    **options,
+                )
+        elif mode == 'rbac_federated':
+            namespace = _required('EVENT_HUB_FULLY_QUALIFIED_NAMESPACE')
+            if '/' in namespace or ':' in namespace or any(c.isspace() for c in namespace):
+                raise ValueError('EVENT_HUB_FULLY_QUALIFIED_NAMESPACE must be a hostname')
+            hub_name = _required('EVENT_HUB_NAME')
+            target_tenant = _required_guid('EVENT_HUB_TARGET_TENANT_ID')
+            app_client = _required_guid('EVENT_HUB_APP_CLIENT_ID')
+            managed_identity = resources.enter_context(
+                ManagedIdentityCredential()  # Select the host's system identity.
+            )
+            app_credential = resources.enter_context(
+                ClientAssertionCredential(
+                    tenant_id=target_tenant,
+                    client_id=app_client,
+                    func=lambda: managed_identity.get_token(
+                        'api://AzureADTokenExchange/.default'
+                    ).token,
+                )
+            )
+            producer = EventHubProducerClient(
+                fully_qualified_namespace=namespace,
+                eventhub_name=hub_name,
+                credential=app_credential,
+                **options,
+            )
+        else:
+            raise ValueError('Invalid EVENT_HUB_AUTH_MODE')
+
+        yield resources.enter_context(producer)
+```
+
+In the existing synchronous publish, keep _serialize_payload(payload) and use the context-managed producer. Wrap serialization, configuration, batch creation and sending in the logged exception boundary:
+
+```python
+def publish(self, payload, *, stage, identifiers=None):
+    execution_id = str((identifiers or {}).get('pipeline_execution_id', ''))
+    operation_step = 'serialize'
+    try:
+        message_body = _serialize_payload(payload)
+        body_bytes = message_body.encode('utf-8')
+        logger.info(
+            'EH_PUBLISH_START stage=%s pipeline_execution_id=%s bytes=%s mode=%s',
+            stage, execution_id, len(body_bytes),
+            os.getenv('EVENT_HUB_AUTH_MODE', 'sas'),
+        )
+        operation_step = 'credential_or_connect'
+        with eventhub_producer_sync() as producer:
+            operation_step = 'create_batch'
+            batch = producer.create_batch()
+            operation_step = 'batch_add'
+            batch.add(EventData(body_bytes))
+            operation_step = 'send_batch'
+            producer.send_batch(batch)
+            logger.info(
+                'EH_PUBLISH_SUCCESS stage=%s pipeline_execution_id=%s bytes=%s',
+                stage, execution_id, len(body_bytes),
+            )
+            operation_step = 'close'
+    except Exception:
+        logger.exception(
+            'EH_PUBLISH_FAILED step=%s stage=%s pipeline_execution_id=%s',
+            operation_step, stage, execution_id,
+        )
+        raise
+```
+
+This fragment uses the existing module’s EventData, logger, and _serialize_payload definitions. Preserve the current project’s configuration exception type, type hints, and logging conventions when integrating it. A close error after a successful send can occur; the markers deliberately distinguish that case.
+
+Use non-buffered sending and do not register an error callback that swallows failures. A successful non-buffered send return represents the service acknowledgement; constructing a producer or creating a batch does not. A single oversized JSON event must fail visibly rather than be silently truncated or split into an unagreed payload format. [4]
+
+Async publisher requirements
+
+Update the async class as well; first check which class the actual queue consumer calls. Preserve the existing awaited API, await create_batch, await send_batch, and awaited closure. Use the async Event Hub producer with an appropriate async token credential. [13]
+
+Do not blindly pass an async def assertion callback to azure.identity.aio.ClientAssertionCredential. The API currently documents func as Callable[[], str], and Microsoft’s published source calls it synchronously. An async function can therefore supply a coroutine instead of a JWT. Check the pinned SDK’s contract. [5][14]
+
+For that synchronous callback contract, two concrete implementations are possible:
+
+• An aio client-assertion credential with a synchronous managed-identity callback. This follows the documented contract, but the managed-identity request can briefly block the event loop.
+• For the queue’s asynchronous runtime, keep the SDK’s synchronous MI + client-assertion credential together and expose an async token-credential adapter whose get_token calls the synchronous credential through asyncio.to_thread. Close both credentials after all token operations have completed, and await the aio producer’s close first. Verify cleanup/cancellation behavior with the pinned SDK. This avoids putting synchronous HTTP work directly on the event loop.
+
+Do not introduce manual OAuth HTTP calls, hand-built assertions, one permanently cached JWT, or DefaultAzureCredential as a substitute for the specified cross-tenant exchange. The synchronous implementation above is the authoritative reference for which identity and scope each stage uses.
+
+9. Verify in stages after the Dev deployment
+
+Stage A — Code package and invocation
+
+1. Confirm the intended clean-branch commit/package reached the Dev HITL bridge.
+2. Open Function App → Functions. Confirm the Service Bus queue consumer is listed/enabled. If functions are missing, inspect host indexing/import/package errors before investigating Event Hub RBAC.
+3. Open Function App → Application Insights → the linked Application Insights resource → Logs. Inspect the actual HITL role. Do not infer its role name from an app registration display name.
+4. Trigger one valid Dev case using the existing workflow or documented queue schema. Record its UTC start time, pipeline_execution_id, Service Bus message ID and Function invocation ID.
+5. Add checkpoints at EH_QUEUE_RECEIVED, EH_PAYLOAD_READY, EH_PUBLISH_START, EH_PUBLISH_SUCCESS, and EH_PUBLISH_FAILED. At the boundary, use your existing structured logger and also put the execution ID in the text so the query does not depend on a particular Python telemetry exporter.
+
+If no queue-received checkpoint exists, trace Cosmos/status notification → queue enqueue → queue listener. Look at active/dead-letter counts and listener errors. If the log level or telemetry resource is wrong, an absent log is not proof of an absent invocation.
+
+Stage B — Token acquisition within the deployed Function runtime
+
+Run this before switching normal Dev publication to RBAC. Use a temporary diagnostic helper inside the existing authenticated Dev execution path; do not expose a public test endpoint. Supply the two app-token settings after matching the app’s runtime trust and UK principal. The helper makes token requests but sends no events and does not change any Azure configuration:
+
+```python
+import logging
+import os
+from azure.identity import ClientAssertionCredential, ManagedIdentityCredential
+
+def probe_eventhub_federation():
+    log = logging.getLogger(__name__)
+    step = 'system_identity_assertion'
+    try:
+        with ManagedIdentityCredential() as managed_identity:
+            assertion = managed_identity.get_token('api://AzureADTokenExchange/.default')
+            log.info('EH_MI_ASSERTION_OK expires_on=%s', assertion.expires_on)
+            step = 'uk_app_token_exchange'
+            with ClientAssertionCredential(
+                tenant_id=os.environ['EVENT_HUB_TARGET_TENANT_ID'],
+                client_id=os.environ['EVENT_HUB_APP_CLIENT_ID'],
+                func=lambda: managed_identity.get_token(
+                    'api://AzureADTokenExchange/.default'
+                ).token,
+            ) as app_credential:
+                token = app_credential.get_token('https://eventhubs.azure.net/.default')
+                log.info('EH_APP_TOKEN_OK expires_on=%s', token.expires_on)
+    except Exception:
+        log.exception('EH_AUTH_PROBE_FAILED step=%s', step)
+        raise
+```
+
+Call this synchronous helper from a synchronous Function path, or offload it correctly from an async path. It isolates getting the source credential from exchanging it in UK. Token success alone does not prove Event Hub network reachability, Data Sender authorization, or resolution of the published support discrepancy. Retain this result and Platform’s supported-configuration confirmation as deployment evidence.
+
+If inspecting JWT claims locally for diagnosis, inspect only an allowlist such as tid, aud, oid, appid/azp, exp; never paste bearer tokens into online decoders or chat. Unverified decoding is not authentication validation, and some tokens should be treated as opaque. The expected final tenant is UK and the app identity is the selected application. For an app-only token, the principal represented in UK must correspond to the role assignment. Do not require an Azure RBAC role name to appear in a roles claim.
+
+Running az login on your laptop/VDI or the deployment agent does not make that process the Function’s managed identity. Prove this from the deployed runtime.
+
+Stage C — Actual send
+
+Send one identifiable, valid Dev payload through the real publisher. Log target hostname, entity name, mode, stage, execution ID and byte count. Log success only after send_batch returns without an error in the non-buffered mode above. Do not log the full extracted document or any credential.
+
+Ensure the queue handler re-raises the publish failure. For default Service Bus trigger settlement, a successfully returning Function completes the queue message, while a failed Function leads to abandonment/retry. Catching an exception and returning normally can therefore hide a failed publication. Preserve the repository’s explicit settlement policy if it uses one. Retries can duplicate an event; a matching execution/stage identifier is correlation evidence, not automatic Event Hub deduplication. [15]
+
+Stage D — Event Hub metrics and downstream evidence
+
+In the UK namespace → Monitoring → Metrics, select Incoming Messages, aggregation Sum, and filter/split by EntityName = the exact target hub. Use the test’s UTC time window. Also inspect User Errors, Server Errors, and Throttled Requests around that time. Do not reuse the earlier namespace-wide count across environments.
+
+Incoming Requests includes data and management operations. Authentication/authorization failures can appear against -NamespaceOnlyMetric-. An increase alone is not a successful publish or proof it came from Dev. If Dev shares an entity, metrics cannot identify your specific document. [16]
+
+Have the existing authorized Data Platform consumer verify the matching execution/stage and final JSON. Capture/ETL visibility can lag an acknowledged send. The sender does not need Data Receiver or Data Owner just so someone can inspect the message. Capture has separate destination-storage identity/permissions. [3][9]
+
+Stage E — Real end-to-end acceptance
+
+For required paths, verify final JSON ready → queue delivery → publisher start → acknowledged send → matching downstream payload. Test the real pre-decision and post-HITL cases that are in scope. A small diagnostic send proves only the authentication/send path; it does not establish that a large final JSON or every business status works.
+
+10. Application Insights queries
+
+These are queries for Application Insights → Logs. Replace the role placeholder with the deployed Function’s actual cloud_RoleName. Choose a time window containing your test. Microsoft documents requests as function invocations, traces as runtime/application logs, and exceptions as exception telemetry. [17]
+
+Find recent role names:
+
+```kusto
+requests
+| where timestamp > ago(24h)
+| summarize Invocations = sum(itemCount) by cloud_RoleName
+| order by Invocations desc
+```
+
+Verify the queue consumer was invoked:
+
+```kusto
+let role = '<ACTUAL_DEV_HITL_CLOUD_ROLE_NAME>';
+requests
+| where timestamp > ago(2h)
+| where cloud_RoleName == role
+| project timestamp, name, success, resultCode, duration,
+          operation_Id, invocationId=tostring(customDimensions['InvocationId'])
+| order by timestamp desc
+```
+
+Read recent Event Hub/checkpoint errors:
+
+```kusto
+let role = '<ACTUAL_DEV_HITL_CLOUD_ROLE_NAME>';
+union
+    (traces
+     | project timestamp, cloud_RoleName, operation_Id,
+               text=message, customDimensions),
+    (exceptions
+     | project timestamp, cloud_RoleName, operation_Id,
+               text=strcat(type, ': ', outerMessage, ' ', tostring(details)),
+               customDimensions)
+| where timestamp > ago(2h)
+| where cloud_RoleName == role
+| where text contains 'EH_' or text contains 'AADSTS'
+     or text contains 'EventHub' or text contains 'ManagedIdentity'
+     or text contains 'ServiceBus' or text contains 'index'
+| project timestamp, operation_Id, text, customDimensions
+| order by timestamp asc
+```
+
+After finding the failed request/trace, follow its exact operation:
+
+```kusto
+let selectedOperation = '<OPERATION_ID_FROM_THE_FAILED_INVOCATION>';
+union
+    (traces
+     | project timestamp, operation_Id, text=message, customDimensions),
+    (exceptions
+     | project timestamp, operation_Id,
+               text=strcat(type, ': ', outerMessage, ' ', tostring(details)),
+               customDimensions)
+| where timestamp > ago(24h)
+| where operation_Id == selectedOperation
+| order by timestamp asc
+```
+
+For different invocations across queues/services, search the propagated execution/message ID as well; operation_Id is not guaranteed to remain the same across every application.
+
+If you opened the underlying Log Analytics workspace, use AppRequests, AppTraces, and AppExceptions. The field names differ. [18]
+
+```kusto
+let role = '<ACTUAL_DEV_HITL_APP_ROLE_NAME>';
+union
+    (AppTraces
+     | project TimeGenerated, AppRoleName, OperationId,
+               Text=Message, Properties),
+    (AppExceptions
+     | project TimeGenerated, AppRoleName, OperationId,
+               Text=strcat(ExceptionType, ': ', OuterMessage), Properties)
+| where TimeGenerated > ago(2h)
+| where AppRoleName == role
+| where Text contains 'EH_' or Text contains 'AADSTS'
+     or Text contains 'EventHub' or Text contains 'ManagedIdentity'
+     or Text contains 'ServiceBus' or Text contains 'index'
+| order by TimeGenerated asc
+```
+
+The new EH_ messages appear only after instrumentation is deployed. For current failures, start with requests and exceptions. Check the logging threshold/sampling and allow ingestion time if an expected informational checkpoint is absent; Live Metrics/Log Stream can help locate current failures. [17]
+
+11. Interpret the first failing step
+
+|Observation                                            |Next specific check                                                                                                                                |
+|-------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------|
+|Function list is empty / import or indexing error      |Deployed package contents, requirements, Python runtime and host errors. Authentication code should not execute at module import.                  |
+|No actual queue invocation                             |Status notification, queue name, enqueue, Service Bus connection/listener, active/dead-letter messages.                                            |
+|Queue received, no payload ready                       |Pipeline execution lookup, DU API response, blob path/read, payload helper.                                                                        |
+|Managed identity unavailable / identity not found      |Run from the Function context; confirm its system identity is enabled and no app client ID is passed as an MI selector.                            |
+|Correct trust but unsupported issuer/identity exchange |Retain the Entra error and ask Platform/Microsoft to resolve the SAMI documentation/support discrepancy; further app-ID swapping is not a fix.     |
+|Assertion acquired, exchange fails with no matching FIC|Home app selection plus exact issuer/subject/audience; distinguish pipeline trust from runtime trust. Allow propagation after an actual correction.|
+|Application not found in target tenant                 |UK tenant selection, app client ID, multitenant configuration, and UK enterprise-app existence.                                                    |
+|Final token acquired, send unauthorized / CBS failure  |UK principal and sender scope, token target, hub/namespace configuration, and the actual detailed error. CBS by itself is not a unique diagnosis.  |
+|Timeout, DNS, TLS or connection failure                |Network/DNS from the deployed app, approved outbound route and Event Hub firewall/private endpoint.                                                |
+|Batch-add failure on actual final JSON                 |Event size and serialization. Do not trim the user’s final JSON to hide the error.                                                                 |
+|Acknowledged send, absent Capture file                 |Correct entity/time window and downstream consumer/Capture/ETL.                                                                                    |
+
+AMQP commonly uses TCP 5671; AMQP over WebSockets uses 443. Entra token acquisition also needs HTTPS access. WebSockets can solve a port/proxy constraint but does not bypass an Event Hub firewall, private DNS problem or missing RBAC. Preserve the approved network configuration. [19]
+
+Microsoft notes Event Hub role assignments can take up to five minutes to propagate, and FIC changes also need propagation time. Waiting is relevant after a verified configuration change; it is not a substitute for finding the failed stage. [6][20]
+
+12. Copy this complete brief into Copilot
+
+```text
+We are restarting the Document Understanding Dev Event Hub RBAC ticket from a clean main-branch clone. Work locally in a feature branch and prepare a reviewable minimal diff. Do not deploy or change live tenant configuration as part of this coding task.
+
+Goal: send the existing finalized JSON passed to our EventHubPublisher/AsyncEventHubPublisher from the HITL pipeline bridge to the intended Event Hub in the UK resource tenant using the approved cross-tenant app identity and Azure Event Hubs Data Sender role. Preserve the existing pre-decision/post-HITL payload contract. Keep publishing in the HITL bridge's existing Service Bus queue consumer (reported as sendtoeventhub). Do not add Event Hub logic to Combined Extraction Output or the initial email-ingestion function. Preserve current status routing after verifying it in this clone.
+
+Scope: Dev authentication migration only. QA and other non-Dev environments still use SAS. The current screenshot's publisher is SAS-only in both its sync and async builders. Do not infer successful publication from namespace Incoming Requests.
+
+First inspect the repo using rg: publisher.py; all .publish calls/imports; HITL queue trigger and pre/post helpers; app.bicep and hitl-pipeline-bridge-app.bicep; deploy.steps YAML and variable templates/groups; actual deployment requirements/lockfiles and host.json. Report which deployed Function and which publisher class actually execute sends. Trace every new value from variable group to deployment parameter to parent Bicep to child module to Function app setting to Python. Find the actual paths/lines; do not trust old screenshot line numbers. Check for external callers of build_producer_with_env_vars before changing its return contract.
+
+Critical identity constraint: the user requires the existing SYSTEM-ASSIGNED identity. Microsoft documentation conflicts: the dedicated app-trust-managed-identity guide says user-assigned only, while the newer Microsoft.Identity.Web certificateless guide describes system-assigned identities too. Do not claim either unconditional support or impossibility for this Python cross-tenant setup. Preserve the system identity and other dependency authentication. Prepare a token-only Dev probe using ManagedIdentityCredential() WITHOUT a client ID, before changing normal publishing mode. Report the actual assertion and UK token-exchange results separately; obtain Platform's supported-configuration confirmation. If live checks cannot run, mark them unverified. Do not invent identities, add a UAMI or introduce a secret. Prepare the implementation diff as a candidate pending the token/support evidence.
+
+Tenant information transcribed from Platform's screenshot (verify from authoritative configuration before deployment): Health source/home tenant edd791b6-a6e2-450b-9582-5c29c2cc2d25; UK Event Hub resource tenant 5a30f2fd-6a7e-4710-b03c-500ce062a4ca. Candidate app CLIENT IDs: DevOps 0615311a-4860-4a0f-8a67-874461b864f0; HITL-named app cbcd7702-8eb6-47c7-bef8-d3defb2e3ba5; document-function-named app 499430b7-404d-43cb-ae4b-6c7fd082156d. These are distinct app registrations; their names do not identify the Function's system-assigned principal. Do not randomly choose one or put an app-registration client ID into ManagedIdentityCredential.
+
+The selected app must have BOTH (a) a runtime managed-identity FIC on its Health home registration and (b) a UK enterprise-app service principal with Data Sender at the exact Event Hub or an appropriate ancestor scope. For the SAMI candidate, source FIC issuer: https://login.microsoftonline.com/<Health tenant>/v2.0; subject: actual Dev HITL Function SYSTEM-ASSIGNED principal/object ID from Function App -> Identity; audience: api://AzureADTokenExchange. A DevOps service-connection FIC is not automatically usable by a Function runtime, even if its issuer is also Microsoft Entra. UK IAM principalId is the selected app's UK service-principal object ID; it is not a Health app object ID or Function managed-identity ID. Report the read-only Azure checks needed for unavailable evidence.
+
+Implement explicit EVENT_HUB_AUTH_MODE with sas as the compatibility default and rbac_federated for verified Dev. Invalid modes fail clearly. SAS mode preserves existing connection-string and EntityPath behavior. RBAC mode must never read or fall back to the connection string.
+
+RBAC runtime settings: EVENT_HUB_FULLY_QUALIFIED_NAMESPACE, EVENT_HUB_NAME, EVENT_HUB_TARGET_TENANT_ID, EVENT_HUB_APP_CLIENT_ID. No managed-identity client ID is required for SAMI. Optional explicit transport setting EVENT_HUB_TRANSPORT_TYPE supports amqp and amqp_websocket, preserving the existing approved transport by default. Validate missing values, unresolved Azure DevOps macros, GUID shape, and namespace hostname format. No protocol prefix/entity path in the namespace. Do not change global AZURE_CLIENT_ID/AZURE_TENANT_ID.
+
+Candidate credential implementation, subject to the Dev probe: ManagedIdentityCredential() requests api://AzureADTokenExchange/.default. A refreshable ClientAssertionCredential(tenant_id=<UK resource tenant>, client_id=<selected app CLIENT ID>, func=<callable obtaining that MI assertion>) is passed to EventHubProducerClient(fully_qualified_namespace=..., eventhub_name=..., credential=...). The Event Hubs SDK requests the final Event Hub token; its scope is https://eventhubs.azure.net/.default. No static JWT or hand-built OAuth exchange. Keep configuration/token work out of module import and publisher __init__ so missing Event Hub configuration cannot hide all functions during indexing.
+
+Preserve serializers and publish(payload, *, stage, identifiers=None). Serialize the existing finalized payload once. Use non-buffered sends. Include serialization, credential creation, batch creation, batch.add, send_batch and cleanup in observable error handling. Close producer and credentials. Log EH_PUBLISH_SUCCESS only after acknowledged send; log exception and re-raise on failure. Preserve the queue's correct retry/settlement behavior. Identify possible duplicate-send-on-retry behavior without inventing exactly-once guarantees.
+
+Update both sync and async paths safely. Inspect the installed/pinned azure-identity async API: aio.ClientAssertionCredential currently documents a synchronous string-returning assertion callback. Do not pass an async callback returning a coroutine unless the actual pinned version explicitly supports awaiting it. Use a correct async credential implementation, with synchronous credential I/O offloaded when needed, and test resource cleanup. Preserve await usage for the async Event Hub producer and actual call sites.
+
+Infra contract: common parent parameters eventHubAuthMode, eventHubFullyQualifiedNamespace, eventHubTargetTenantId, eventHubTransportType; HITL-specific parameter hitlEventHubAppClientId. Parent passes it into the child eventHubAppClientId parameter and the child maps it to EVENT_HUB_APP_CLIENT_ID. Merge with existing settings and preserve existing identity configuration. If the document app also genuinely publishes, use a separate DOCUMENT_EVENT_HUB_APP_CLIENT_ID input and verify trust for its own system identity; do not migrate it just because it creates a publisher object. Do not add unrelated resource roles or attempt UK role assignments from the Health deployment context.
+
+Variable group inputs: EVENT_HUB_AUTH_MODE, EVENT_HUB_FULLY_QUALIFIED_NAMESPACE, existing EVENT_HUB_NAME, EVENT_HUB_TARGET_TENANT_ID, HITL_EVENT_HUB_APP_CLIENT_ID, EVENT_HUB_TRANSPORT_TYPE. Update the existing deploy.steps task using its current Bash/PowerShell/ARM parameter mechanism, preserving every unrelated parameter and secret handling. Make defaults valid in all non-Dev environments. Verify dependencies in the actual Function deployment package, not just a developer environment.
+
+Diagnostics: correlate EH_QUEUE_RECEIVED, EH_PAYLOAD_READY, EH_PUBLISH_START, EH_PUBLISH_SUCCESS and EH_PUBLISH_FAILED with pipeline_execution_id, stage, Function invocation/message IDs, hostname, entity, mode and byte count. Do not log bearer tokens, SAS strings or full document JSON. Provide Application Insights requests/traces/exceptions queries, plus a workspace-table equivalent where required. Distinguish no invocation, payload retrieval failure, MI assertion failure, UK token exchange failure, RBAC/CBS failure, network error, oversized batch and Capture delay.
+
+Validation: run existing relevant checks and add focused tests for SAS with/without EntityPath, RBAC never falling back to SAS, SAMI selection with no client ID, correct app/UK tenant mapping and assertion scope, missing settings, exception propagation, async callback type, closure, and unchanged payload serialization. Compile the actual Bicep and validate deployment parameters using available tooling; report checks that could not run. Do not claim Azure connectivity from local mocks.
+
+Finish with: changed files and concise diffs; exact variable-group -> YAML -> Bicep -> app-setting mapping per publisher app; verified and missing Azure prerequisites; evidence for the chosen app client ID and UK IAM principal; tests actually run; Dev deployment/test steps; and a rollback using explicit SAS mode with existing secret handling. A successful test requires the actual Dev queue invocation, an acknowledged send, and downstream confirmation of the matching finalized JSON. Never claim success from namespace request counts or a constructed producer.
+
+Primary references:
+https://learn.microsoft.com/en-us/entra/workload-id/workload-identity-federation-config-app-trust-managed-identity
+https://learn.microsoft.com/en-us/entra/msidweb/authentication/certificateless
+https://learn.microsoft.com/en-us/python/api/azure-identity/azure.identity.managedidentitycredential?view=azure-python
+https://learn.microsoft.com/en-us/azure/event-hubs/authenticate-application
+https://learn.microsoft.com/en-us/entra/identity-platform/app-objects-and-service-principals
+https://learn.microsoft.com/en-us/python/api/azure-identity/azure.identity.aio.clientassertioncredential?view=azure-python
+https://learn.microsoft.com/en-us/azure/event-hubs/monitor-event-hubs-reference
+```
+
+13. Completion and rollback
+
+Accept the Dev migration only when the SAMI support/trust question is resolved for the deployed setup, the actual publisher is confirmed to use rbac_federated, the configured source credential exchanges successfully, the intended UK principal holds effective sender access, the real queue-driven final payload is acknowledged, and the existing consumer confirms the correct JSON. Verify every required stage in the ticket; an isolated probe is insufficient for the full pipeline.
+
+For a deliberate rollback, restore EVENT_HUB_AUTH_MODE=sas through the existing Dev deployment configuration and restore/retain its existing valid Key Vault/connection-string setting. Do not build an automatic fallback into RBAC mode. Do not disable namespace-wide SAS while other environments still depend on it.
+
+The guide’s Python fragments were syntax-checked and its standalone YAML/JSON examples parsed locally. The Bash argument fragment was syntax-checked. The actual repository, Azure SDK runtime, Bicep compiler and Azure tenant connectivity were not available here; full integration, Bicep compilation and live validation remain steps for the clean clone and Dev environment.
+
+Microsoft references
+
+1. Configure an application to trust a managed identity — supported credential, home/target tenant requirements, FIC fields and token exchange.
+2. Application objects and service principals — application identity versus tenant-local principal and managed identity.
+3. Authenticate an application to Event Hubs — Event Hub resource audience and sender authorization.
+4. Synchronous EventHubProducerClient API — constructor, batch send, error and buffered-mode behavior.
+5. Async ClientAssertionCredential API — synchronous assertion callback contract and asynchronous credential methods.
+6. Federated identity credential considerations — matching and propagation behavior.
+7. Managed identities in App Service and Functions — identity attachment, coexistence and identity fields.
+8. Troubleshoot workload identity service connections — pipeline issuer/subject forms and federation mismatch errors.
+9. Use managed identities for Event Hubs Capture — separate Capture destination authentication.
+10. Azure Event Hubs Data Sender built-in role — role ID and permissions.
+11. Azure CLI role assignments — read-only role inspection and inherited scope.
+12. Deploy Bicep using Azure CLI — deployment parameter passing.
+13. Asynchronous EventHubProducerClient API — async producer contract.
+14. Microsoft’s published async client-assertion credential source — synchronous callback invocation.
+15. Azure Functions Service Bus trigger — message settlement and invocation behavior.
+16. Event Hubs monitoring data reference — request/message distinction and entity dimensions.
+17. Analyze Azure Functions telemetry — log location, queries, invocation correlation and sampling.
+18. Application Insights telemetry data model — Application Insights and workspace table names.
+19. Troubleshoot Event Hubs connectivity — DNS, firewall and AMQP/WebSockets paths.
+20. Authorize Event Hubs with Microsoft Entra ID — resource scope and role-assignment propagation.
+21. Certificateless authentication with Microsoft.Identity.Web — newer guidance explicitly describing SAMI, in conflict with the dedicated managed-identity federation article.
+22. Python ManagedIdentityCredential API — default system-identity selection; client-ID argument selects a UAMI in App Service.
+23. Microsoft Identity team’s cross-tenant federation explanation — two-token design and multitenant app provisioning.
+24. Python ClientAssertionCredential API — refreshable assertion callback and resource lifecycle.
