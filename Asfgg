@@ -162,3 +162,126 @@ traces
 | project timestamp, severityLevel, message, operation_Id
 | order by timestamp asc
 
+
+
+
+We have identified the exact Event Hub failure from Application Insights.
+
+Current error:
+
+EventHubError:
+object AccessToken can't be used in 'await' expression
+
+Stack trace shows the failure happens when:
+
+await producer.create_batch()
+
+Inside azure.eventhub.aio.EventHubProducerClient the SDK tries to await
+credential.get_token(), but our ClientAssertionCredential is currently
+the synchronous credential from azure.identity.
+
+IMPORTANT:
+Do NOT change:
+- Event Hub namespace
+- Event Hub name
+- tenant ID
+- client ID
+- RBAC
+- federated identity flow
+- payload logic
+- queue trigger logic
+
+The authentication itself is succeeding and our diagnostic token contains
+the expected UK tenant/service principal identity.
+
+FIX THE SYNC/ASYNC CREDENTIAL MISMATCH ONLY.
+
+1. Check publisher.py imports.
+
+If we currently have:
+
+from azure.identity import ClientAssertionCredential
+
+change ONLY the ClientAssertionCredential import to:
+
+from azure.identity.aio import ClientAssertionCredential
+
+because we are using:
+
+from azure.eventhub.aio import EventHubProducerClient
+
+The EventHub AIO producer requires an async TokenCredential whose
+get_token() can be awaited.
+
+2. Keep our existing get_assertion callback compatible with
+ClientAssertionCredential.
+
+The Microsoft aio ClientAssertionCredential constructor still expects:
+
+func: Callable[[], str]
+
+so get_assertion should continue returning the JWT assertion string,
+not an AccessToken object.
+
+For example conceptually:
+
+def get_assertion():
+    assertion = managed_identity_credential.get_token(
+        "api://AzureADTokenExchange/.default"
+    )
+    return assertion.token
+
+credential = ClientAssertionCredential(
+    tenant_id=EVENT_HUB_TENANT_ID,
+    client_id=EVENT_HUB_APP_CLIENT_ID,
+    func=get_assertion
+)
+
+producer = EventHubProducerClient(
+    fully_qualified_namespace=EVENT_HUB_FULLY_QUALIFIED_NAMESPACE,
+    eventhub_name=EVENT_HUB_NAME,
+    credential=credential
+)
+
+async with producer:
+    batch = await producer.create_batch()
+    ...
+    await producer.send_batch(batch)
+
+3. Do NOT manually wrap AccessToken with await.
+
+Do NOT do:
+await sync_credential.get_token(...)
+
+The correct solution is using azure.identity.aio.ClientAssertionCredential
+with azure.eventhub.aio.EventHubProducerClient.
+
+4. Make sure the async ClientAssertionCredential is closed correctly after
+use:
+
+await credential.close()
+
+Prefer async context managers / finally blocks so the credential is closed
+even on failure.
+
+5. Keep the diagnostic logs.
+
+After fixing this I expect:
+
+EH_DIAG_07_FINAL_TOKEN_IDENTITY
+EH_DIAG_08_PRODUCER_CREATING
+EH_DIAG_09_PRODUCER_CREATED
+EH_DIAG_10_SEND_STARTED
+EH_DIAG_11_SEND_ACKNOWLEDGED
+
+The previous failure occurred between producer creation and the actual
+send because the AIO Event Hub client could not await the synchronous
+credential.
+
+6. Show me exactly:
+- old import
+- new import
+- lines changed
+- confirmation that EventHubProducerClient remains the AIO version
+- confirmation that ClientAssertionCredential now comes from azure.identity.aio
+- confirmation that no RBAC/configuration/business logic was changed.
