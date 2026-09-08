@@ -1,0 +1,164 @@
+I need to troubleshoot our DEV cross-tenant Event Hub publishing issue.
+
+Current architecture:
+HITL Function App
+-> Service Bus queue trigger
+-> ManagedIdentityCredential
+-> get token for api://AzureADTokenExchange/.default
+-> ClientAssertionCredential
+   tenant_id = EVENT_HUB_TENANT_ID (UK tenant)
+   client_id = EVENT_HUB_APP_CLIENT_ID (HITL multitenant app)
+-> EventHubProducerClient / AsyncEventHubProducerClient
+-> DEV Event Hub
+
+Current problem:
+The Function and queue appear successful, Event Hub shows Successful Requests, but DEV Event Hub has:
+Incoming Messages = 0
+Incoming Bytes = 0.
+
+Azure Event Hubs Data Sender RBAC has already been assigned to the UK-side service principal.
+
+DO NOT change the authentication architecture or business logic yet.
+Instead add TEMPORARY diagnostic logging to publisher.py / send_to_event_hub so we can prove exactly where the flow is stopping.
+
+Please implement the following diagnostics:
+
+1. When the Service Bus triggered function begins, log:
+   EH_DIAG_01_QUEUE_TRIGGERED
+   Include pipeline_execution_id/message identifier if available.
+
+2. Before authentication, log:
+   EH_DIAG_02_CONFIG
+   - EVENT_HUB_FULLY_QUALIFIED_NAMESPACE
+   - EVENT_HUB_NAME
+   - EVENT_HUB_TENANT_ID
+   - last 4 characters only of EVENT_HUB_APP_CLIENT_ID
+   Do NOT log secrets.
+
+3. Immediately after ManagedIdentityCredential is created, log:
+   EH_DIAG_03_MANAGED_IDENTITY_CREATED
+
+4. When requesting:
+   api://AzureADTokenExchange/.default
+   log before and after:
+   EH_DIAG_04_ASSERTION_REQUEST_STARTED
+   EH_DIAG_05_ASSERTION_RECEIVED
+
+   Do NOT log the assertion/token itself.
+
+5. When ClientAssertionCredential is created, log:
+   EH_DIAG_06_CLIENT_ASSERTION_CREDENTIAL_CREATED
+
+6. Temporarily request an Event Hub access token from that ClientAssertionCredential for:
+   https://eventhubs.azure.net/.default
+
+   Decode ONLY the JWT payload for diagnostics without validating or printing the raw token.
+
+   Log ONLY:
+   - tid
+   - oid
+   - appid or azp
+   - aud
+
+   Format:
+   EH_DIAG_07_FINAL_TOKEN_IDENTITY
+   tid=<value>
+   oid=<value>
+   appid_or_azp=<value>
+   aud=<value>
+
+   NEVER log:
+   - raw access token
+   - client assertion
+   - secrets
+
+7. Before constructing EventHubProducerClient log:
+   EH_DIAG_08_PRODUCER_CREATING
+
+8. Immediately after producer/client creation log:
+   EH_DIAG_09_PRODUCER_CREATED
+
+9. Immediately before the actual Event Hub send operation log:
+   EH_DIAG_10_SEND_STARTED
+   Include:
+   namespace=<resolved namespace>
+   eventhub=<resolved event hub>
+   payload_size=<bytes>
+
+10. Make sure the actual send is awaited.
+For example:
+   await producer.send_batch(batch)
+or the equivalent send_event call used by this code.
+
+11. ONLY after the awaited send returns successfully log:
+   EH_DIAG_11_SEND_ACKNOWLEDGED
+
+Do not print "success" anywhere before the actual awaited Event Hub send has completed.
+
+12. Wrap ONLY the authentication + Event Hub publishing section with exception logging.
+
+On exception log:
+   EH_DIAG_ERROR
+   exception_type
+   exception_message
+   stack trace
+
+Then re-raise the exception. Do not swallow it and do not convert the Function invocation into success.
+
+13. If the Event Hub client exposes retry / AMQP / authorization errors, make sure they are logged.
+
+14. Do not modify:
+   - payload filtering
+   - pre/post HITL conditions
+   - queue behavior
+   - RBAC/IaC
+   - Event Hub names
+   - authentication approach
+
+This change is diagnostics only.
+
+At the end, show me:
+A. exactly which file/lines you modified
+B. the diagnostic flow from EH_DIAG_01 through EH_DIAG_11
+C. confirm that EH_DIAG_11 can only happen AFTER Azure Event Hub acknowledges the send
+D. confirm exceptions are re-raised.
+
+
+
+
+
+traces
+| where timestamp > ago(30m)
+| where message contains "EH_DIAG"
+| project timestamp, severityLevel, message, operation_Id
+| order by timestamp asc
+
+
+
+exceptions
+| where timestamp > ago(30m)
+| project
+    timestamp,
+    type,
+    outerMessage,
+    innermostMessage,
+    operation_Id
+| order by timestamp desc
+
+
+
+traces
+| where timestamp > ago(30m)
+| where message has_any (
+    "EventHub",
+    "Event Hub",
+    "Authorization",
+    "Unauthorized",
+    "AMQP",
+    "CBS",
+    "token",
+    "EH_DIAG"
+)
+| project timestamp, severityLevel, message, operation_Id
+| order by timestamp asc
+
