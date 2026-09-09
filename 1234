@@ -1,0 +1,11 @@
+All Azure role assignments must remain in our repository and be deployed through code.
+
+The latest failure is hitlEventHubSenderRoleAssignmentModule denied Microsoft.Resources/deployments/write in target subscription ab8df137…. The parent deployment authenticates against source subscription e1555df4….
+
+Identify the exact service connection used by the failing task and return its YAML reference. Show the Event Hub module declaration and child role-assignment resource with filenames and line numbers.
+
+Prepare a minimal patch that deploys the existing Event Hub RBAC Bicep through a dedicated task in the same pipeline, using an approved service connection authenticated to the Event Hub tenant. Keep the Function infrastructure deployment on its source connection. Identify any required connection or parameter that has not been provided.
+
+Verify that the Data Sender principalId represents the runtime application’s Enterprise Application object in the Event Hub tenant. Preserve existing role-assignment naming, system-assigned managed-identity configuration and per-environment settings.
+
+Keep RBAC deployment mandatory. Report missing deployment permissions as an infrastructure prerequisite, rather than attempting to grant the unauthorized caller permissions through the failing deployment.
